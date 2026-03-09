@@ -1,21 +1,39 @@
 """
 Professional F1 Tire Degradation Analysis App
-Integrated Streamlit application with all functionality in one place.
+Master entrypoint - integrates all modules.
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-import fastf1
 from pathlib import Path
 import logging
-import os
 from datetime import datetime
-import base64
-from io import BytesIO
+
+# Import UI components
+from ui import (
+    load_css,
+    render_header,
+    render_footer,
+    render_sidebar_config,
+    render_data_quality_banner,
+    render_feature_availability,
+    render_sidebar_quality_indicator,
+    render_export_section
+)
+
+# Import core modules
+from src.tire_model import (
+    calculate_degradation_delta,
+    add_health_scores,
+    calculate_stint_statistics
+)
+from src.data_fetcher import (
+    fetch_race_data,
+    get_available_races,
+    check_data_quality,
+    get_feature_availability
+)
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING)
@@ -29,614 +47,23 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #e10600;
-        font-weight: 700;
-        margin-bottom: 1rem;
-    }
-    .sub-header {
-        font-size: 1.5rem;
-        color: #ffffff;
-        font-weight: 600;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 2px solid #e10600;
-    }
-    .metric-card {
-        background-color: #1e1e1e;
-        border-radius: 10px;
-        padding: 1rem;
-        border-left: 4px solid #e10600;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-    }
-    .info-text {
-        color: #cccccc;
-        font-size: 0.9rem;
-    }
-    .stDataFrame {
-        background-color: #1e1e1e;
-    }
-    .quality-banner {
-        padding: 1rem;
-        border-radius: 5px;
-        margin: 1rem 0;
-        border-left: 5px solid;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Load custom CSS
+load_css()
 
 # Initialize cache
 CACHE_DIR = Path(__file__).parent / 'cache'
 CACHE_DIR.mkdir(exist_ok=True)
-fastf1.Cache.enable_cache(str(CACHE_DIR))
-
-#===============================================================================
-# DATA QUALITY FUNCTIONS
-#===============================================================================
-
-def check_data_quality(year):
-    """
-    Check data quality and return appropriate warnings based on year.
-    
-    Args:
-        year: The selected year
-    
-    Returns:
-        tuple: (warning_level, warning_message, data_quality_score, color)
-    """
-    current_year = datetime.now().year
-    
-    # Define eras
-    if year >= 2018:
-        return (
-            "✅", 
-            f"**High Quality Data** ({year}) - Full telemetry, tire compounds, and accurate lap times available",
-            100,
-            "#00ff00"
-        )
-    elif year >= 2014:
-        return (
-            "⚠️", 
-            f"**Moderate Quality Data** ({year}) - Hybrid era: Basic telemetry available, tire compound data may be limited",
-            75,
-            "#ffaa00"
-        )
-    elif year >= 2010:
-        return (
-            "⚠️⚠️", 
-            f"**Limited Data** ({year}) - Pre-hybrid era: Lap times available, limited telemetry, tire data may be incomplete",
-            50,
-            "#ff6600"
-        )
-    elif year >= 2000:
-        return (
-            "⚠️⚠️⚠️", 
-            f"**Basic Data Only** ({year}) - Vintage era: Lap times and basic results available, no tire compound information",
-            25,
-            "#ff3300"
-        )
-    else:
-        return (
-            "❌", 
-            f"**Very Limited Data** ({year}) - Historical data: May only have race results, lap times may be incomplete",
-            10,
-            "#ff0000"
-        )
-
-def display_data_quality_banner(year):
-    """Display a prominent banner about data quality."""
-    icon, message, score, color = check_data_quality(year)
-    
-    # Create a colored banner
-    st.markdown(f"""
-    <div style="
-        background: linear-gradient(90deg, {color}20 0%, {color}10 100%);
-        border-left: 5px solid {color};
-        border-radius: 5px;
-        padding: 1rem;
-        margin: 1rem 0;
-        border: 1px solid {color}40;
-    ">
-        <div style="display: flex; align-items: center; gap: 1rem;">
-            <div style="font-size: 2rem;">{icon}</div>
-            <div style="flex-grow: 1;">
-                <div style="font-weight: 600; color: {color};">Data Quality Alert</div>
-                <div style="color: #cccccc;">{message}</div>
-            </div>
-            <div style="text-align: right;">
-                <div style="font-size: 1.5rem; font-weight: 700; color: {color};">{score}%</div>
-                <div style="font-size: 0.8rem; color: #888;">Quality Score</div>
-            </div>
-        </div>
-        <div style="margin-top: 0.5rem; height: 4px; background: #333; border-radius: 2px;">
-            <div style="width: {score}%; height: 100%; background: {color}; border-radius: 2px;"></div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    return score
-
-def get_feature_availability(year):
-    """Get detailed feature availability for a given year."""
-    features = {
-        'Lap Times': year >= 1950,
-        'Tire Compounds': year >= 2011,  # Pirelli era started 2011
-        'Full Telemetry': year >= 2018,
-        'Speed Traps': year >= 2010,
-        'Weather Data': year >= 2000,
-        'Driver Details': year >= 1990,
-        'Position Data': year >= 2000,
-        'Pit Stop Data': year >= 2010,
-        'Sector Times': year >= 2010,
-        'ERS Data': year >= 2014,
-        'Throttle Data': year >= 2018,
-        'DRS Data': year >= 2011,
-    }
-    
-    return features
-
-def display_feature_availability(year):
-    """Display a table of available features for the selected year."""
-    features = get_feature_availability(year)
-    
-    st.markdown("### 📋 Available Data Features")
-    
-    # Create columns for feature display
-    col1, col2 = st.columns(2)
-    cols = [col1, col2]
-    
-    feature_items = list(features.items())
-    items_per_col = len(feature_items) // 2 + 1
-    
-    for col_idx, col in enumerate(cols):
-        with col:
-            start_idx = col_idx * items_per_col
-            end_idx = min((col_idx + 1) * items_per_col, len(feature_items))
-            
-            for feature, available in feature_items[start_idx:end_idx]:
-                if available:
-                    st.markdown(f"✅ {feature}")
-                else:
-                    st.markdown(f"❌ {feature}")
-
-#===============================================================================
-# TIRE MODEL FUNCTIONS
-#===============================================================================
-
-def calculate_fuel_correction_vectorized(df, fuel_decay_per_lap=2.5, time_penalty_per_kg=0.035):
-    """Calculate fuel correction for entire DataFrame."""
-    result_df = df.copy()
-    
-    if 'StintLength' not in result_df.columns:
-        stint_lengths = result_df.groupby('Stint')['TyreLife'].transform('max')
-        result_df['StintLength'] = stint_lengths
-    
-    laps_completed = result_df.get('TyreLife', result_df.get('LapNumber'))
-    remaining_laps = (result_df['StintLength'] - laps_completed).clip(lower=0)
-    fuel_penalty = remaining_laps * fuel_decay_per_lap * time_penalty_per_kg
-    
-    return result_df['LapTimeSeconds'] - fuel_penalty
-
-def calculate_degradation_delta(df, fuel_decay_per_lap=2.5, time_penalty_per_kg=0.035, benchmark_method='fastest'):
-    """Calculate degradation delta for each lap."""
-    result_df = df.copy()
-    
-    if 'StintLength' not in result_df.columns:
-        stint_lengths = result_df.groupby('Stint')['TyreLife'].transform('max')
-        result_df['StintLength'] = stint_lengths
-    
-    result_df['CorrectedTime'] = calculate_fuel_correction_vectorized(
-        result_df, fuel_decay_per_lap, time_penalty_per_kg
-    )
-    
-    result_df['DegradationDelta'] = 0.0
-    result_df['FreshTireBenchmark'] = 0.0
-    
-    for stint_num in result_df['Stint'].unique():
-        stint_mask = result_df['Stint'] == stint_num
-        stint_data = result_df[stint_mask]
-        
-        if benchmark_method == 'fastest':
-            benchmark_time = stint_data['CorrectedTime'].min()
-        elif benchmark_method == 'second_lap' and len(stint_data) >= 2:
-            second_lap = stint_data[stint_data['TyreLife'] == 2]
-            benchmark_time = second_lap['CorrectedTime'].iloc[0] if not second_lap.empty else stint_data['CorrectedTime'].min()
-        else:
-            benchmark_time = stint_data['CorrectedTime'].median()
-        
-        result_df.loc[stint_mask, 'FreshTireBenchmark'] = benchmark_time
-        result_df.loc[stint_mask, 'DegradationDelta'] = (
-            result_df.loc[stint_mask, 'CorrectedTime'] - benchmark_time
-        )
-    
-    return result_df
-
-def calculate_health_score(degradation_delta, max_degradation=2.5):
-    """Convert degradation delta to health score percentage."""
-    normalized = np.clip(degradation_delta / max_degradation, 0, 1)
-    return (1 - normalized) * 100
-
-def add_health_scores(df, max_degradation=2.5):
-    """Add health scores to DataFrame."""
-    result_df = df.copy()
-    result_df['HealthScore'] = result_df['DegradationDelta'].apply(
-        lambda x: calculate_health_score(x, max_degradation)
-    )
-    return result_df
-
-def calculate_stint_statistics(df):
-    """Calculate per-stint statistics."""
-    stats = []
-    
-    for stint in df['Stint'].unique():
-        stint_data = df[df['Stint'] == stint]
-        compound = stint_data['Compound'].iloc[0] if len(stint_data) > 0 else 'Unknown'
-        
-        # Calculate degradation rate using linear regression
-        if len(stint_data) >= 3:
-            x = stint_data['TyreLife'].values.reshape(-1, 1)
-            y = stint_data['DegradationDelta'].values
-            from sklearn.linear_model import LinearRegression
-            model = LinearRegression()
-            model.fit(x, y)
-            deg_rate = model.coef_[0]
-        else:
-            deg_rate = 0.0
-        
-        stint_stats = {
-            'Stint': stint,
-            'Compound': compound,
-            'Laps': len(stint_data),
-            'Avg Lap Time': round(stint_data['LapTimeSeconds'].mean(), 3),
-            'Best Lap': round(stint_data['LapTimeSeconds'].min(), 3),
-            'Avg Degradation': round(stint_data['DegradationDelta'].mean(), 3),
-            'Max Degradation': round(stint_data['DegradationDelta'].max(), 3),
-            'Degradation Rate (s/lap)': round(deg_rate, 4),
-            'Avg Health %': round(stint_data['HealthScore'].mean(), 1),
-            'Min Health %': round(stint_data['HealthScore'].min(), 1)
-        }
-        stats.append(stint_stats)
-    
-    return pd.DataFrame(stats)
-
-#===============================================================================
-# DATA FETCHER FUNCTIONS
-#===============================================================================
-
-@st.cache_data(ttl=3600, show_spinner="Fetching F1 data...")
-def fetch_race_data(year, round_num, driver, session_type='R'):
-    """Fetch race data for a specific driver."""
-    try:
-        session = fastf1.get_session(year, round_num, session_type)
-        session.load()
-        
-        laps = session.laps.pick_drivers([driver])
-        
-        if len(laps) == 0:
-            return None
-        
-        data = laps[['LapNumber', 'LapTime', 'Compound', 'Stint', 'TyreLife']].copy()
-        data['LapTimeSeconds'] = data['LapTime'].apply(
-            lambda x: x.total_seconds() if pd.notna(x) else None
-        )
-        data = data.dropna(subset=['LapTimeSeconds'])
-        
-        data['Year'] = year
-        data['Round'] = round_num
-        data['Driver'] = driver
-        data['Session'] = session_type
-        
-        return data.reset_index(drop=True)
-    
-    except Exception as e:
-        st.error(f"Error fetching data: {e}")
-        return None
-
-@st.cache_data(ttl=3600)
-def get_available_races():
-    """Get list of available races from FastF1 (all available years)."""
-    try:
-        # FastF1 supports data from 1983 onwards, but let's try from 2000
-        current_year = datetime.now().year
-        years = list(range(2000, current_year + 1))  # Unlocked!
-        
-        race_schedule = []
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for i, year in enumerate(years):
-            status_text.text(f"Loading {year} calendar...")
-            try:
-                events = fastf1.get_event_schedule(year)
-                for _, event in events.iterrows():
-                    race_schedule.append({
-                        'Year': year,
-                        'Round': event['RoundNumber'],
-                        'Event': event['EventName'],
-                        'Country': event['Country'],
-                        'Date': event['EventDate']
-                    })
-            except Exception as e:
-                # Skip years with no data
-                continue
-            
-            # Update progress
-            progress_bar.progress((i + 1) / len(years))
-        
-        progress_bar.empty()
-        status_text.empty()
-        
-        df = pd.DataFrame(race_schedule)
-        
-        if df.empty:
-            st.warning("No race data found. Falling back to 2018-2024 range.")
-            # Fallback to known good range
-            years = list(range(2018, current_year + 1))
-            for year in years:
-                try:
-                    events = fastf1.get_event_schedule(year)
-                    for _, event in events.iterrows():
-                        race_schedule.append({
-                            'Year': year,
-                            'Round': event['RoundNumber'],
-                            'Event': event['EventName'],
-                            'Country': event['Country'],
-                            'Date': event['EventDate']
-                        })
-                except:
-                    continue
-            return pd.DataFrame(race_schedule)
-        
-        return df
-        
-    except Exception as e:
-        st.warning(f"Could not fetch race schedule: {e}")
-        # Ultimate fallback - most reliable years
-        fallback_years = [2018, 2019, 2020, 2021, 2022, 2023, 2024]
-        race_schedule = []
-        for year in fallback_years:
-            try:
-                events = fastf1.get_event_schedule(year)
-                for _, event in events.iterrows():
-                    race_schedule.append({
-                        'Year': year,
-                        'Round': event['RoundNumber'],
-                        'Event': event['EventName'],
-                        'Country': event['Country'],
-                        'Date': event['EventDate']
-                    })
-            except:
-                continue
-        return pd.DataFrame(race_schedule)
-
-#===============================================================================
-# VISUALIZATION FUNCTIONS
-#===============================================================================
-
-def create_degradation_chart(df):
-    """Create tire degradation visualization."""
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=('Lap Times by Stint', 'Tire Degradation (Delta)',
-                       'Tire Health Score', 'Compound Performance Comparison'),
-        vertical_spacing=0.12,
-        horizontal_spacing=0.15
-    )
-    
-    colors = {'SOFT': '#e10600', 'MEDIUM': '#ffd700', 'HARD': '#c0c0c0', 'INTERMEDIATE': '#228b22', 'WET': '#4169e1'}
-    
-    # 1. Lap Times
-    for stint in df['Stint'].unique():
-        stint_data = df[df['Stint'] == stint]
-        compound = stint_data['Compound'].iloc[0]
-        color = colors.get(compound, '#808080')
-        
-        fig.add_trace(
-            go.Scatter(
-                x=stint_data['TyreLife'], 
-                y=stint_data['LapTimeSeconds'],
-                mode='lines+markers',
-                name=f'Stint {stint} ({compound})',
-                line=dict(color=color, width=2),
-                marker=dict(size=6),
-                hovertemplate='Lap %{x}<br>Time: %{y:.3f}s<extra></extra>'
-            ),
-            row=1, col=1
-        )
-    
-    # 2. Degradation Delta
-    for stint in df['Stint'].unique():
-        stint_data = df[df['Stint'] == stint]
-        compound = stint_data['Compound'].iloc[0]
-        color = colors.get(compound, '#808080')
-        
-        fig.add_trace(
-            go.Scatter(
-                x=stint_data['TyreLife'], 
-                y=stint_data['DegradationDelta'],
-                mode='lines+markers',
-                name=f'Stint {stint}',
-                line=dict(color=color, width=2),
-                marker=dict(size=6),
-                showlegend=False,
-                hovertemplate='Lap %{x}<br>Delta: %{y:.3f}s<extra></extra>'
-            ),
-            row=1, col=2
-        )
-    
-    # 3. Health Score
-    for stint in df['Stint'].unique():
-        stint_data = df[df['Stint'] == stint]
-        compound = stint_data['Compound'].iloc[0]
-        color = colors.get(compound, '#808080')
-        
-        fig.add_trace(
-            go.Scatter(
-                x=stint_data['TyreLife'], 
-                y=stint_data['HealthScore'],
-                mode='lines+markers',
-                name=f'Stint {stint}',
-                line=dict(color=color, width=2),
-                marker=dict(size=6),
-                showlegend=False,
-                hovertemplate='Lap %{x}<br>Health: %{y:.1f}%<extra></extra>'
-            ),
-            row=2, col=1
-        )
-    
-    # 4. Box plot by compound
-    for compound in df['Compound'].unique():
-        compound_data = df[df['Compound'] == compound]
-        color = colors.get(compound, '#808080')
-        
-        fig.add_trace(
-            go.Box(
-                y=compound_data['LapTimeSeconds'],
-                name=compound,
-                marker_color=color,
-                boxmean='sd',
-                hovertemplate='Compound: %{y:.3f}s<extra></extra>'
-            ),
-            row=2, col=2
-        )
-    
-    # Update layout
-    fig.update_layout(
-        height=800,
-        showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=1.05,
-            bgcolor="rgba(0,0,0,0.5)"
-        ),
-        paper_bgcolor='#0e1117',
-        plot_bgcolor='#1e1e1e',
-        font=dict(color='#ffffff'),
-        title={
-            'text': f"Tire Degradation Analysis - {df['Driver'].iloc[0]} ({df['Year'].iloc[0]} Round {df['Round'].iloc[0]})",
-            'y':0.98,
-            'x':0.5,
-            'xanchor': 'center',
-            'yanchor': 'top',
-            'font': dict(size=20, color='#e10600')
-        }
-    )
-    
-    # Update axes
-    fig.update_xaxes(title_text="Tyre Life (Laps)", gridcolor='#333333', row=1, col=1)
-    fig.update_xaxes(title_text="Tyre Life (Laps)", gridcolor='#333333', row=1, col=2)
-    fig.update_xaxes(title_text="Tyre Life (Laps)", gridcolor='#333333', row=2, col=1)
-    fig.update_xaxes(title_text="Compound", gridcolor='#333333', row=2, col=2)
-    
-    fig.update_yaxes(title_text="Lap Time (seconds)", gridcolor='#333333', row=1, col=1)
-    fig.update_yaxes(title_text="Degradation Delta (seconds)", gridcolor='#333333', row=1, col=2)
-    fig.update_yaxes(title_text="Tire Health (%)", gridcolor='#333333', row=2, col=1)
-    fig.update_yaxes(title_text="Lap Time (seconds)", gridcolor='#333333', row=2, col=2)
-    
-    fig.add_hline(y=0, line_dash="dash", line_color="#e10600", opacity=0.3, row=1, col=2)
-    
-    return fig
-
-def create_heatmap(df):
-    """Create degradation heatmap."""
-    pivot_data = df.pivot_table(
-        values='DegradationDelta',
-        index='Stint',
-        columns='TyreLife',
-        aggfunc='mean'
-    ).fillna(0)
-    
-    fig = go.Figure(data=go.Heatmap(
-        z=pivot_data.values,
-        x=pivot_data.columns,
-        y=pivot_data.index,
-        colorscale='RdYlGn_r',
-        text=np.round(pivot_data.values, 2),
-        texttemplate='%{text}',
-        textfont={"size": 10},
-        hoverongaps=False,
-        colorbar=dict(title="Degradation (s)")
-    ))
-    
-    fig.update_layout(
-        title="Degradation Heatmap by Stint",
-        xaxis_title="Tyre Life (Laps)",
-        yaxis_title="Stint",
-        height=400,
-        paper_bgcolor='#0e1117',
-        plot_bgcolor='#1e1e1e',
-        font=dict(color='#ffffff')
-    )
-    
-    return fig
-
-#===============================================================================
-# EXPORT FUNCTIONS
-#===============================================================================
-
-def get_table_download_link(df, filename, text):
-    """Generate download link for dataframe."""
-    csv = df.to_csv(index=False)
-    b64 = base64.b64encode(csv.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64}" download="{filename}.csv" style="color: #e10600;">📥 {text}</a>'
-    return href
 
 #===============================================================================
 # MAIN APP
 #===============================================================================
 
 def main():
-    # Header
-    st.markdown('<p class="main-header">🏎️ Camber F1 - Tire Degradation Analysis</p>', unsafe_allow_html=True)
-    st.markdown('<p class="info-text">Professional Formula 1 tire performance modeling and analysis tool</p>', unsafe_allow_html=True)
+    # Render header
+    render_header()
     
-    # Sidebar
-    with st.sidebar:
-        st.image("https://www.formula1.com/etc/designs/fom-website/images/f1_logo.svg", width=200)
-        st.markdown("## ⚙️ Configuration")
-        
-        # Input method selection
-        input_method = st.radio(
-            "Data Source",
-            ["🎯 Quick Analysis", "📅 Race Calendar", "📁 Upload CSV"],
-            help="Choose how to load data"
-        )
-        
-        # Analysis parameters
-        st.markdown("### 🔧 Model Parameters")
-        
-        with st.expander("Fuel Model", expanded=False):
-            fuel_decay = st.slider(
-                "Fuel Burn per Lap (kg)",
-                min_value=1.0, max_value=4.0, value=2.5, step=0.1,
-                help="Amount of fuel consumed per lap"
-            )
-            
-            fuel_penalty = st.slider(
-                "Time Penalty per kg (s)",
-                min_value=0.01, max_value=0.1, value=0.035, step=0.005,
-                help="Time loss per kg of fuel"
-            )
-        
-        with st.expander("Degradation Model", expanded=False):
-            max_degradation = st.slider(
-                "Max Degradation for 0% Health (s)",
-                min_value=1.0, max_value=5.0, value=2.5, step=0.1,
-                help="Time loss at which tire health reaches 0%"
-            )
-            
-            benchmark = st.selectbox(
-                "Benchmark Method",
-                ["fastest", "second_lap", "median"],
-                help="Method to calculate fresh tire benchmark"
-            )
+    # Render sidebar and get configuration
+    input_method, fuel_decay, fuel_penalty, max_degradation, benchmark = render_sidebar_config()
     
     # Main content area
     df = None
@@ -653,13 +80,13 @@ def main():
         with col3:
             driver = st.text_input("Driver Code", value="VER").upper()
         
-        # Display data quality banner for selected year
-        quality_score = display_data_quality_banner(year)
+        # Display data quality banner
+        quality_score = render_data_quality_banner(year, check_data_quality)
         
         # If older data, show additional warning
         if quality_score < 75:
             with st.expander("🔍 What data is available for this year?", expanded=True):
-                display_feature_availability(year)
+                render_feature_availability(get_feature_availability(year))
                 
                 if quality_score < 50:
                     st.warning("""
@@ -682,9 +109,9 @@ def main():
                 raw_df = fetch_race_data(year, round_num, driver, session)
                 
                 if raw_df is not None and len(raw_df) > 0:
-                    # Add year-specific warnings in results
+                    # Add year-specific warnings
                     if year < 2018:
-                        st.warning(f"⚠️ **Note:** Data from {year} has limitations. Tire compound information may be incomplete. Analysis based on available lap times.")
+                        st.warning(f"⚠️ **Note:** Data from {year} has limitations. Tire compound information may be incomplete.")
                     
                     df = calculate_degradation_delta(raw_df, fuel_decay, fuel_penalty, benchmark)
                     df = add_health_scores(df, max_degradation)
@@ -704,14 +131,11 @@ def main():
             
             with col1:
                 selected_year = st.selectbox("Year", years)
+                quality_score = render_data_quality_banner(selected_year, check_data_quality)
                 
-                # Show data quality for selected year
-                quality_score = display_data_quality_banner(selected_year)
-                
-                # If older data, show feature availability
                 if quality_score < 75:
                     with st.expander("🔍 Available data for this year", expanded=False):
-                        display_feature_availability(selected_year)
+                        render_feature_availability(get_feature_availability(selected_year))
             
             with col2:
                 year_races = races_df[races_df['Year'] == selected_year]
@@ -730,9 +154,8 @@ def main():
             session = st.selectbox("Session", ["R", "Q", "S", "FP1", "FP2", "FP3"])
             
             if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
-                # Check data quality
                 if quality_score < 20:
-                    st.error("❌ Selected year has very limited data. Analysis may not be meaningful.")
+                    st.error("❌ Selected year has very limited data.")
                     if not st.checkbox("Continue anyway?"):
                         st.stop()
                 
@@ -741,14 +164,14 @@ def main():
                     
                     if raw_df is not None and len(raw_df) > 0:
                         if selected_year < 2018:
-                            st.warning(f"⚠️ **Note:** Data from {selected_year} has limitations. Tire compound data may be incomplete.")
+                            st.warning(f"⚠️ **Note:** Data from {selected_year} has limitations.")
                         
                         df = calculate_degradation_delta(raw_df, fuel_decay, fuel_penalty, benchmark)
                         df = add_health_scores(df, max_degradation)
                         st.session_state['analysis_df'] = df
                         st.success(f"✅ Analysis complete! Loaded {len(df)} laps.")
                     else:
-                        st.error("❌ No data found for the selected criteria.")
+                        st.error("❌ No data found.")
         else:
             st.warning("Could not load race calendar. Please use Quick Analysis.")
     
@@ -764,9 +187,8 @@ def main():
         if uploaded_file is not None:
             try:
                 raw_df = pd.read_csv(uploaded_file)
-                
-                # Validate columns
                 required_cols = ['LapNumber', 'LapTimeSeconds', 'TyreLife', 'Stint', 'Compound']
+                
                 if all(col in raw_df.columns for col in required_cols):
                     df = calculate_degradation_delta(raw_df, fuel_decay, fuel_penalty, benchmark)
                     df = add_health_scores(df, max_degradation)
@@ -781,23 +203,10 @@ def main():
     if 'analysis_df' in st.session_state and st.session_state['analysis_df'] is not None:
         df = st.session_state['analysis_df']
         
-        # Show data quality reminder in sidebar
+        # Show data quality in sidebar
         year = df['Year'].iloc[0]
         icon, message, score, color = check_data_quality(year)
-        
-        st.sidebar.markdown("---")
-        st.sidebar.markdown(f"""
-        <div style="
-            background: {color}20;
-            border-radius: 5px;
-            padding: 0.5rem;
-            border: 1px solid {color};
-        ">
-            <div style="font-size: 0.8rem; color: {color}; font-weight: 600;">📊 CURRENT ANALYSIS</div>
-            <div style="font-size: 0.7rem; color: #ccc;">{driver} - {year} R{round_num}</div>
-            <div style="font-size: 0.7rem; color: {color};">Quality: {score}% {icon}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_sidebar_quality_indicator(df['Driver'].iloc[0], year, df['Round'].iloc[0], icon, score, color)
         
         # Tabs for different views
         tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "📈 Visualizations", "🔍 Detailed Data", "📥 Export"])
@@ -866,11 +275,13 @@ def main():
         with tab2:
             st.markdown('<p class="sub-header">📈 Tire Degradation Visualizations</p>', unsafe_allow_html=True)
             
-            # Main degradation chart
+            # Import visualization functions from src
+            # Import visualization functions from src.tire_model
+            from src.tire_model import create_degradation_chart, create_heatmap
+            
             fig = create_degradation_chart(df)
             st.plotly_chart(fig, use_container_width=True)
             
-            # Heatmap
             st.markdown('<p class="sub-header">🔥 Degradation Heatmap</p>', unsafe_allow_html=True)
             heatmap = create_heatmap(df)
             st.plotly_chart(heatmap, use_container_width=True)
@@ -878,7 +289,6 @@ def main():
         with tab3:
             st.markdown('<p class="sub-header">🔍 Detailed Lap Data</p>', unsafe_allow_html=True)
             
-            # Filters
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -901,14 +311,12 @@ def main():
                     min_value=0, max_value=100, value=0
                 )
             
-            # Apply filters
             filtered_df = df[
                 (df['Stint'].isin(selected_stints)) &
                 (df['Compound'].isin(selected_compounds)) &
                 (df['HealthScore'] >= health_threshold)
             ]
             
-            # Display data
             display_cols = ['LapNumber', 'TyreLife', 'Compound', 'Stint', 
                           'LapTimeSeconds', 'CorrectedTime', 'DegradationDelta', 'HealthScore']
             
@@ -928,69 +336,11 @@ def main():
         
         with tab4:
             st.markdown('<p class="sub-header">📥 Export Data</p>', unsafe_allow_html=True)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("### Lap-Level Data")
-                st.markdown(get_table_download_link(
-                    df, 
-                    f"f1_tire_analysis_{df['Driver'].iloc[0]}_{df['Year'].iloc[0]}_R{df['Round'].iloc[0]}_laps",
-                    "Download Lap Data (CSV)"
-                ), unsafe_allow_html=True)
-                
-                st.markdown("### Stint Statistics")
-                stint_stats = calculate_stint_statistics(df)
-                st.markdown(get_table_download_link(
-                    stint_stats,
-                    f"f1_tire_analysis_{df['Driver'].iloc[0]}_{df['Year'].iloc[0]}_R{df['Round'].iloc[0]}_stints",
-                    "Download Stint Stats (CSV)"
-                ), unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown("### Summary Report")
-                if st.button("Generate Summary Report", use_container_width=True):
-                    summary = f"""
-                    F1 TIRE DEGRADATION ANALYSIS REPORT
-                    ====================================
-                    Driver: {df['Driver'].iloc[0]}
-                    Year: {df['Year'].iloc[0]}
-                    Round: {df['Round'].iloc[0]}
-                    Session: {df['Session'].iloc[0]}
-                    Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-                    
-                    DATA QUALITY: {score}% {icon}
-                    {message}
-                    
-                    SUMMARY STATISTICS
-                    ------------------
-                    Total Laps: {len(df)}
-                    Number of Stints: {df['Stint'].nunique()}
-                    Compounds Used: {', '.join(df['Compound'].unique()) if df['Compound'].notna().any() else 'N/A'}
-                    
-                    Best Lap: {df['LapTimeSeconds'].min():.3f}s
-                    Average Lap: {df['LapTimeSeconds'].mean():.3f}s
-                    
-                    Average Tire Health: {df['HealthScore'].mean():.1f}%
-                    Average Degradation: {df['DegradationDelta'].mean():.3f}s
-                    
-                    STINT BREAKDOWN
-                    ---------------
-                    {calculate_stint_statistics(df).to_string()}
-                    
-                    NOTE: Analysis quality depends on data availability for the selected year.
-                    """
-                    
-                    b64 = base64.b64encode(summary.encode()).decode()
-                    href = f'<a href="data:file/txt;base64,{b64}" download="analysis_report.txt" style="color: #e10600;">📥 Download Summary Report</a>'
-                    st.markdown(href, unsafe_allow_html=True)
+            stint_stats = calculate_stint_statistics(df)
+            render_export_section(df, stint_stats, icon, message, score)
     
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        '<p style="text-align: center; color: #666;">🏎️ Camber F1 - Professional Tire Degradation Analysis | Data provided by FastF1</p>',
-        unsafe_allow_html=True
-    )
+    # Render footer
+    render_footer()
 
 if __name__ == "__main__":
     main()

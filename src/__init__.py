@@ -1,14 +1,34 @@
 """
-Camber F1 - Tire Degradation Analysis Package
+Core modules for F1 tire degradation analysis.
 """
 
-from .data_fetcher import get_race_data
 from .tire_model import (
-    calculate_fuel_correction,
     calculate_fuel_correction_vectorized,
     calculate_degradation_delta,
     calculate_health_score,
-    add_health_scores
+    add_health_scores,
+    calculate_stint_statistics,
+    create_degradation_chart,
+    create_heatmap
 )
 
-__version__ = '0.1.0'
+from .data_fetcher import (
+    fetch_race_data,
+    get_available_races,
+    check_data_quality,
+    get_feature_availability
+)
+
+__all__ = [
+    'calculate_fuel_correction_vectorized',
+    'calculate_degradation_delta',
+    'calculate_health_score',
+    'add_health_scores',
+    'calculate_stint_statistics',
+    'create_degradation_chart',
+    'create_heatmap',
+    'fetch_race_data',
+    'get_available_races',
+    'check_data_quality',
+    'get_feature_availability'
+]
