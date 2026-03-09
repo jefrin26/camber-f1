@@ -5,45 +5,46 @@ F1 data fetcher using FastF1 library.
 import fastf1
 import pandas as pd
 import logging
-import os
 from pathlib import Path
+from datetime import datetime
+import streamlit as st
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# Get the project root directory (where cache folder is)
-PROJECT_ROOT = Path(__file__).parent.parent
-CACHE_DIR = PROJECT_ROOT / 'cache'
+# Get the project root directory
+CACHE_DIR = Path(__file__).parent.parent / 'cache'
+CACHE_DIR.mkdir(exist_ok=True)
 
 # Enable FastF1 caching
 fastf1.Cache.enable_cache(str(CACHE_DIR))
 
-def get_race_data(year: int, round_num: int, driver: str, session_type: str = 'R'):
+#===============================================================================
+# DATA FETCHING FUNCTIONS
+#===============================================================================
+
+@st.cache_data(ttl=3600, show_spinner="Fetching F1 data...")
+def fetch_race_data(year, round_num, driver, session_type='R'):
     """
-    Fetches lap times and tire compound data for a specific driver.
+    Fetch race data for a specific driver.
     
     Args:
-        year (int): Season year (e.g., 2023)
-        round_num (int): Race round number (e.g., 22 for Abu Dhabi)
-        driver (str): Driver abbreviation (e.g., 'VER', 'HAM')
-        session_type (str): Session type ('R' for Race, 'Q' for Qualifying, etc.)
+        year: Season year
+        round_num: Race round number
+        driver: Driver abbreviation (e.g., 'VER', 'HAM')
+        session_type: Session type ('R' for Race, 'Q' for Qualifying, etc.)
     
     Returns:
-        pd.DataFrame: Cleaned dataframe with Lap, Time, Compound, and Stint info.
+        pd.DataFrame: Cleaned dataframe with lap data
     """
-    logger.info(f"Loading data for {year} Round {round_num} ({session_type}) - Driver: {driver}...")
-    
     try:
-        # Load session
         session = fastf1.get_session(year, round_num, session_type)
         session.load()
         
-        # Get laps for the specific driver
         laps = session.laps.pick_drivers([driver])
         
         if len(laps) == 0:
-            logger.warning(f"No laps found for {driver}")
             return None
         
         # Select relevant columns
@@ -63,72 +64,182 @@ def get_race_data(year: int, round_num: int, driver: str, session_type: str = 'R
         data['Driver'] = driver
         data['Session'] = session_type
         
-        # Reset index
-        data = data.reset_index(drop=True)
-        
-        logger.info(f"Successfully loaded {len(data)} laps for {driver}")
-        return data
-
+        return data.reset_index(drop=True)
+    
     except Exception as e:
-        logger.error(f"Error fetching data: {e}")
+        st.error(f"Error fetching data: {e}")
         return None
 
-def get_multiple_drivers_data(year: int, round_num: int, drivers: list, session_type: str = 'R'):
+@st.cache_data(ttl=3600)
+def get_available_races():
     """
-    Fetch data for multiple drivers in the same race.
-    
-    Args:
-        year: Season year
-        round_num: Race round number
-        drivers: List of driver abbreviations
-        session_type: Session type
+    Get list of available races from FastF1.
     
     Returns:
-        pd.DataFrame: Combined data for all drivers
+        pd.DataFrame: DataFrame with available races
     """
-    all_data = []
-    
-    for driver in drivers:
-        df = get_race_data(year, round_num, driver, session_type)
-        if df is not None:
-            all_data.append(df)
-    
-    if all_data:
-        return pd.concat(all_data, ignore_index=True)
-    return None
-
-def get_available_races(year: int = None):
-    """
-    Get list of available races in cache.
-    
-    Args:
-        year: Optional year to filter
-    
-    Returns:
-        list: Available race events
-    """
-    from fastf1 import events
-    
-    if year:
-        return events.get_event_schedule(year)
-    else:
-        # Get all years from cache
-        cache_years = [d for d in CACHE_DIR.iterdir() if d.is_dir() and d.name.isdigit()]
-        all_events = []
-        for y in cache_years:
+    try:
+        current_year = datetime.now().year
+        years = list(range(2000, current_year + 1))
+        
+        race_schedule = []
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for i, year in enumerate(years):
+            status_text.text(f"Loading {year} calendar...")
             try:
-                events_year = events.get_event_schedule(int(y.name))
-                all_events.append(events_year)
+                events = fastf1.get_event_schedule(year)
+                for _, event in events.iterrows():
+                    race_schedule.append({
+                        'Year': year,
+                        'Round': event['RoundNumber'],
+                        'Event': event['EventName'],
+                        'Country': event['Country'],
+                        'Date': event['EventDate']
+                    })
+            except Exception:
+                # Skip years with no data
+                continue
+            
+            progress_bar.progress((i + 1) / len(years))
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        df = pd.DataFrame(race_schedule)
+        
+        if df.empty:
+            st.warning("No race data found. Falling back to 2018-2024 range.")
+            years = list(range(2018, current_year + 1))
+            for year in years:
+                try:
+                    events = fastf1.get_event_schedule(year)
+                    for _, event in events.iterrows():
+                        race_schedule.append({
+                            'Year': year,
+                            'Round': event['RoundNumber'],
+                            'Event': event['EventName'],
+                            'Country': event['Country'],
+                            'Date': event['EventDate']
+                        })
+                except:
+                    continue
+            return pd.DataFrame(race_schedule)
+        
+        return df
+        
+    except Exception as e:
+        st.warning(f"Could not fetch race schedule: {e}")
+        fallback_years = [2018, 2019, 2020, 2021, 2022, 2023, 2024]
+        race_schedule = []
+        for year in fallback_years:
+            try:
+                events = fastf1.get_event_schedule(year)
+                for _, event in events.iterrows():
+                    race_schedule.append({
+                        'Year': year,
+                        'Round': event['RoundNumber'],
+                        'Event': event['EventName'],
+                        'Country': event['Country'],
+                        'Date': event['EventDate']
+                    })
             except:
                 continue
-        return pd.concat(all_events, ignore_index=True) if all_events else pd.DataFrame()
+        return pd.DataFrame(race_schedule)
+
+#===============================================================================
+# DATA QUALITY FUNCTIONS
+#===============================================================================
+
+def check_data_quality(year):
+    """
+    Check data quality and return appropriate warnings based on year.
+    
+    Args:
+        year: The selected year
+    
+    Returns:
+        tuple: (warning_level, warning_message, data_quality_score, color)
+    """
+    current_year = datetime.now().year
+    
+    if year >= 2018:
+        return (
+            "✅", 
+            f"**High Quality Data** ({year}) - Full telemetry, tire compounds, and accurate lap times available",
+            100,
+            "#00ff00"
+        )
+    elif year >= 2014:
+        return (
+            "⚠️", 
+            f"**Moderate Quality Data** ({year}) - Hybrid era: Basic telemetry available, tire compound data may be limited",
+            75,
+            "#ffaa00"
+        )
+    elif year >= 2010:
+        return (
+            "⚠️⚠️", 
+            f"**Limited Data** ({year}) - Pre-hybrid era: Lap times available, limited telemetry, tire data may be incomplete",
+            50,
+            "#ff6600"
+        )
+    elif year >= 2000:
+        return (
+            "⚠️⚠️⚠️", 
+            f"**Basic Data Only** ({year}) - Vintage era: Lap times and basic results available, no tire compound information",
+            25,
+            "#ff3300"
+        )
+    else:
+        return (
+            "❌", 
+            f"**Very Limited Data** ({year}) - Historical data: May only have race results, lap times may be incomplete",
+            10,
+            "#ff0000"
+        )
+
+def get_feature_availability(year):
+    """
+    Get detailed feature availability for a given year.
+    
+    Args:
+        year: The selected year
+    
+    Returns:
+        dict: Dictionary of features and their availability
+    """
+    return {
+        'Lap Times': year >= 1950,
+        'Tire Compounds': year >= 2011,  # Pirelli era started 2011
+        'Full Telemetry': year >= 2018,
+        'Speed Traps': year >= 2010,
+        'Weather Data': year >= 2000,
+        'Driver Details': year >= 1990,
+        'Position Data': year >= 2000,
+        'Pit Stop Data': year >= 2010,
+        'Sector Times': year >= 2010,
+        'ERS Data': year >= 2014,
+        'Throttle Data': year >= 2018,
+        'DRS Data': year >= 2011,
+    }
+
+#===============================================================================
+# TEST FUNCTION
+#===============================================================================
 
 if __name__ == "__main__":
-    # Example usage
-    df = get_race_data(2023, 22, 'HAM')
+    # Test the functions
+    print("Testing data fetcher...")
     
+    # Test data quality
+    for year in [1999, 2005, 2012, 2016, 2023]:
+        icon, msg, score, color = check_data_quality(year)
+        print(f"{year}: {icon} Score: {score}% - {msg}")
+    
+    # Test fetching data
+    df = fetch_race_data(2023, 22, 'HAM')
     if df is not None:
-        print("\n--- First 5 Laps Preview ---")
-        print(df.head())
-        print("\n--- Tire Compounds Used ---")
-        print(df['Compound'].value_counts())
+        print(f"\nSuccessfully fetched {len(df)} laps for Hamilton at 2023 Abu Dhabi")
+        print(f"Columns: {list(df.columns)}")
