@@ -1,0 +1,4 @@
+fastf1>=3.4.0
+streamlit>=1.31.0
+plotly>=5.18.0
+pandas>=2.0.0
