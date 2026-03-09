@@ -61,6 +61,12 @@ st.markdown("""
     .stDataFrame {
         background-color: #1e1e1e;
     }
+    .quality-banner {
+        padding: 1rem;
+        border-radius: 5px;
+        margin: 1rem 0;
+        border-left: 5px solid;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,6 +74,135 @@ st.markdown("""
 CACHE_DIR = Path(__file__).parent / 'cache'
 CACHE_DIR.mkdir(exist_ok=True)
 fastf1.Cache.enable_cache(str(CACHE_DIR))
+
+#===============================================================================
+# DATA QUALITY FUNCTIONS
+#===============================================================================
+
+def check_data_quality(year):
+    """
+    Check data quality and return appropriate warnings based on year.
+    
+    Args:
+        year: The selected year
+    
+    Returns:
+        tuple: (warning_level, warning_message, data_quality_score, color)
+    """
+    current_year = datetime.now().year
+    
+    # Define eras
+    if year >= 2018:
+        return (
+            "✅", 
+            f"**High Quality Data** ({year}) - Full telemetry, tire compounds, and accurate lap times available",
+            100,
+            "#00ff00"
+        )
+    elif year >= 2014:
+        return (
+            "⚠️", 
+            f"**Moderate Quality Data** ({year}) - Hybrid era: Basic telemetry available, tire compound data may be limited",
+            75,
+            "#ffaa00"
+        )
+    elif year >= 2010:
+        return (
+            "⚠️⚠️", 
+            f"**Limited Data** ({year}) - Pre-hybrid era: Lap times available, limited telemetry, tire data may be incomplete",
+            50,
+            "#ff6600"
+        )
+    elif year >= 2000:
+        return (
+            "⚠️⚠️⚠️", 
+            f"**Basic Data Only** ({year}) - Vintage era: Lap times and basic results available, no tire compound information",
+            25,
+            "#ff3300"
+        )
+    else:
+        return (
+            "❌", 
+            f"**Very Limited Data** ({year}) - Historical data: May only have race results, lap times may be incomplete",
+            10,
+            "#ff0000"
+        )
+
+def display_data_quality_banner(year):
+    """Display a prominent banner about data quality."""
+    icon, message, score, color = check_data_quality(year)
+    
+    # Create a colored banner
+    st.markdown(f"""
+    <div style="
+        background: linear-gradient(90deg, {color}20 0%, {color}10 100%);
+        border-left: 5px solid {color};
+        border-radius: 5px;
+        padding: 1rem;
+        margin: 1rem 0;
+        border: 1px solid {color}40;
+    ">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <div style="font-size: 2rem;">{icon}</div>
+            <div style="flex-grow: 1;">
+                <div style="font-weight: 600; color: {color};">Data Quality Alert</div>
+                <div style="color: #cccccc;">{message}</div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 1.5rem; font-weight: 700; color: {color};">{score}%</div>
+                <div style="font-size: 0.8rem; color: #888;">Quality Score</div>
+            </div>
+        </div>
+        <div style="margin-top: 0.5rem; height: 4px; background: #333; border-radius: 2px;">
+            <div style="width: {score}%; height: 100%; background: {color}; border-radius: 2px;"></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    return score
+
+def get_feature_availability(year):
+    """Get detailed feature availability for a given year."""
+    features = {
+        'Lap Times': year >= 1950,
+        'Tire Compounds': year >= 2011,  # Pirelli era started 2011
+        'Full Telemetry': year >= 2018,
+        'Speed Traps': year >= 2010,
+        'Weather Data': year >= 2000,
+        'Driver Details': year >= 1990,
+        'Position Data': year >= 2000,
+        'Pit Stop Data': year >= 2010,
+        'Sector Times': year >= 2010,
+        'ERS Data': year >= 2014,
+        'Throttle Data': year >= 2018,
+        'DRS Data': year >= 2011,
+    }
+    
+    return features
+
+def display_feature_availability(year):
+    """Display a table of available features for the selected year."""
+    features = get_feature_availability(year)
+    
+    st.markdown("### 📋 Available Data Features")
+    
+    # Create columns for feature display
+    col1, col2 = st.columns(2)
+    cols = [col1, col2]
+    
+    feature_items = list(features.items())
+    items_per_col = len(feature_items) // 2 + 1
+    
+    for col_idx, col in enumerate(cols):
+        with col:
+            start_idx = col_idx * items_per_col
+            end_idx = min((col_idx + 1) * items_per_col, len(feature_items))
+            
+            for feature, available in feature_items[start_idx:end_idx]:
+                if available:
+                    st.markdown(f"✅ {feature}")
+                else:
+                    st.markdown(f"❌ {feature}")
 
 #===============================================================================
 # TIRE MODEL FUNCTIONS
@@ -204,13 +339,67 @@ def fetch_race_data(year, round_num, driver, session_type='R'):
 
 @st.cache_data(ttl=3600)
 def get_available_races():
-    """Get list of available races from FastF1."""
+    """Get list of available races from FastF1 (all available years)."""
     try:
+        # FastF1 supports data from 1983 onwards, but let's try from 2000
         current_year = datetime.now().year
-        years = list(range(2018, current_year + 1))
+        years = list(range(2000, current_year + 1))  # Unlocked!
         
         race_schedule = []
-        for year in years:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for i, year in enumerate(years):
+            status_text.text(f"Loading {year} calendar...")
+            try:
+                events = fastf1.get_event_schedule(year)
+                for _, event in events.iterrows():
+                    race_schedule.append({
+                        'Year': year,
+                        'Round': event['RoundNumber'],
+                        'Event': event['EventName'],
+                        'Country': event['Country'],
+                        'Date': event['EventDate']
+                    })
+            except Exception as e:
+                # Skip years with no data
+                continue
+            
+            # Update progress
+            progress_bar.progress((i + 1) / len(years))
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        df = pd.DataFrame(race_schedule)
+        
+        if df.empty:
+            st.warning("No race data found. Falling back to 2018-2024 range.")
+            # Fallback to known good range
+            years = list(range(2018, current_year + 1))
+            for year in years:
+                try:
+                    events = fastf1.get_event_schedule(year)
+                    for _, event in events.iterrows():
+                        race_schedule.append({
+                            'Year': year,
+                            'Round': event['RoundNumber'],
+                            'Event': event['EventName'],
+                            'Country': event['Country'],
+                            'Date': event['EventDate']
+                        })
+                except:
+                    continue
+            return pd.DataFrame(race_schedule)
+        
+        return df
+        
+    except Exception as e:
+        st.warning(f"Could not fetch race schedule: {e}")
+        # Ultimate fallback - most reliable years
+        fallback_years = [2018, 2019, 2020, 2021, 2022, 2023, 2024]
+        race_schedule = []
+        for year in fallback_years:
             try:
                 events = fastf1.get_event_schedule(year)
                 for _, event in events.iterrows():
@@ -223,11 +412,7 @@ def get_available_races():
                     })
             except:
                 continue
-        
         return pd.DataFrame(race_schedule)
-    except Exception as e:
-        st.warning(f"Could not fetch race schedule: {e}")
-        return pd.DataFrame()
 
 #===============================================================================
 # VISUALIZATION FUNCTIONS
@@ -462,19 +647,45 @@ def main():
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            year = st.number_input("Year", min_value=2018, max_value=2024, value=2023)
+            year = st.number_input("Year", min_value=1950, max_value=datetime.now().year, value=2023)
         with col2:
-            round_num = st.number_input("Round", min_value=1, max_value=24, value=22)
+            round_num = st.number_input("Round", min_value=1, max_value=30, value=22)
         with col3:
             driver = st.text_input("Driver Code", value="VER").upper()
+        
+        # Display data quality banner for selected year
+        quality_score = display_data_quality_banner(year)
+        
+        # If older data, show additional warning
+        if quality_score < 75:
+            with st.expander("🔍 What data is available for this year?", expanded=True):
+                display_feature_availability(year)
+                
+                if quality_score < 50:
+                    st.warning("""
+                    **⚠️ Analysis Limitations:**
+                    - Tire compound data may not be available
+                    - Fuel correction will be based on estimates
+                    - Health scores will be calculated from lap times only
+                    """)
         
         session = st.selectbox("Session", ["R", "Q", "S", "FP1", "FP2", "FP3"])
         
         if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+            # Check year validity before running
+            if quality_score < 20:
+                st.error("❌ Selected year has very limited data. Analysis may not be meaningful.")
+                if not st.checkbox("Continue anyway?"):
+                    st.stop()
+            
             with st.spinner("Fetching and analyzing data..."):
                 raw_df = fetch_race_data(year, round_num, driver, session)
                 
                 if raw_df is not None and len(raw_df) > 0:
+                    # Add year-specific warnings in results
+                    if year < 2018:
+                        st.warning(f"⚠️ **Note:** Data from {year} has limitations. Tire compound information may be incomplete. Analysis based on available lap times.")
+                    
                     df = calculate_degradation_delta(raw_df, fuel_decay, fuel_penalty, benchmark)
                     df = add_health_scores(df, max_degradation)
                     st.session_state['analysis_df'] = df
@@ -493,23 +704,45 @@ def main():
             
             with col1:
                 selected_year = st.selectbox("Year", years)
+                
+                # Show data quality for selected year
+                quality_score = display_data_quality_banner(selected_year)
+                
+                # If older data, show feature availability
+                if quality_score < 75:
+                    with st.expander("🔍 Available data for this year", expanded=False):
+                        display_feature_availability(selected_year)
+            
             with col2:
                 year_races = races_df[races_df['Year'] == selected_year]
-                selected_race = st.selectbox(
-                    "Race",
-                    year_races.apply(lambda x: f"Round {x['Round']}: {x['Event']}", axis=1)
-                )
-                round_num = year_races.iloc[selected_race]['Round']
+                race_options = year_races.apply(
+                    lambda x: f"Round {int(x['Round'])}: {x['Event']} ({x['Country']})", 
+                    axis=1
+                ).tolist()
+                
+                selected_race = st.selectbox("Race", race_options)
+                selected_idx = race_options.index(selected_race)
+                round_num = int(year_races.iloc[selected_idx]['Round'])
+            
             with col3:
                 driver = st.text_input("Driver Code", value="VER").upper()
             
             session = st.selectbox("Session", ["R", "Q", "S", "FP1", "FP2", "FP3"])
             
             if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+                # Check data quality
+                if quality_score < 20:
+                    st.error("❌ Selected year has very limited data. Analysis may not be meaningful.")
+                    if not st.checkbox("Continue anyway?"):
+                        st.stop()
+                
                 with st.spinner("Fetching and analyzing data..."):
                     raw_df = fetch_race_data(selected_year, round_num, driver, session)
                     
                     if raw_df is not None and len(raw_df) > 0:
+                        if selected_year < 2018:
+                            st.warning(f"⚠️ **Note:** Data from {selected_year} has limitations. Tire compound data may be incomplete.")
+                        
                         df = calculate_degradation_delta(raw_df, fuel_decay, fuel_penalty, benchmark)
                         df = add_health_scores(df, max_degradation)
                         st.session_state['analysis_df'] = df
@@ -547,6 +780,24 @@ def main():
     # Display results if available
     if 'analysis_df' in st.session_state and st.session_state['analysis_df'] is not None:
         df = st.session_state['analysis_df']
+        
+        # Show data quality reminder in sidebar
+        year = df['Year'].iloc[0]
+        icon, message, score, color = check_data_quality(year)
+        
+        st.sidebar.markdown("---")
+        st.sidebar.markdown(f"""
+        <div style="
+            background: {color}20;
+            border-radius: 5px;
+            padding: 0.5rem;
+            border: 1px solid {color};
+        ">
+            <div style="font-size: 0.8rem; color: {color}; font-weight: 600;">📊 CURRENT ANALYSIS</div>
+            <div style="font-size: 0.7rem; color: #ccc;">{driver} - {year} R{round_num}</div>
+            <div style="font-size: 0.7rem; color: {color};">Quality: {score}% {icon}</div>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Tabs for different views
         tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "📈 Visualizations", "🔍 Detailed Data", "📥 Export"])
@@ -708,11 +959,14 @@ def main():
                     Session: {df['Session'].iloc[0]}
                     Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                     
+                    DATA QUALITY: {score}% {icon}
+                    {message}
+                    
                     SUMMARY STATISTICS
                     ------------------
                     Total Laps: {len(df)}
                     Number of Stints: {df['Stint'].nunique()}
-                    Compounds Used: {', '.join(df['Compound'].unique())}
+                    Compounds Used: {', '.join(df['Compound'].unique()) if df['Compound'].notna().any() else 'N/A'}
                     
                     Best Lap: {df['LapTimeSeconds'].min():.3f}s
                     Average Lap: {df['LapTimeSeconds'].mean():.3f}s
@@ -723,6 +977,8 @@ def main():
                     STINT BREAKDOWN
                     ---------------
                     {calculate_stint_statistics(df).to_string()}
+                    
+                    NOTE: Analysis quality depends on data availability for the selected year.
                     """
                     
                     b64 = base64.b64encode(summary.encode()).decode()
