@@ -179,35 +179,35 @@ def check_data_quality(year):
     if year >= 2018:
         return (
             "✅", 
-            f"**High Quality Data** ({year}) - Full telemetry, tire compounds, and accurate lap times available",
+            f"High Quality Data ({year}) - Full telemetry, tire compounds, and accurate lap times available",
             100,
             "#00ff00"
         )
     elif year >= 2014:
         return (
             "⚠️", 
-            f"**Moderate Quality Data** ({year}) - Hybrid era: Basic telemetry available, tire compound data may be limited",
+            f"Moderate Quality Data ({year}) - Hybrid era: Basic telemetry available, tire compound data may be limited",
             75,
             "#ffaa00"
         )
     elif year >= 2010:
         return (
             "⚠️⚠️", 
-            f"**Limited Data** ({year}) - Pre-hybrid era: Lap times available, limited telemetry, tire data may be incomplete",
+            f"Limited Data ({year}) - Pre-hybrid era: Lap times available, limited telemetry, tire data may be incomplete",
             50,
             "#ff6600"
         )
     elif year >= 2000:
         return (
             "⚠️⚠️⚠️", 
-            f"**Basic Data Only** ({year}) - Vintage era: Lap times and basic results available, no tire compound information",
+            f"Basic Data Only ({year}) - Vintage era: Lap times and basic results available, no tire compound information",
             25,
             "#ff3300"
         )
     else:
         return (
             "❌", 
-            f"**Very Limited Data** ({year}) - Historical data: May only have race results, lap times may be incomplete",
+            f"Very Limited Data ({year}) - Historical data: May only have race results, lap times may be incomplete",
             10,
             "#ff0000"
         )
