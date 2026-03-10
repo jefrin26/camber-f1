@@ -161,6 +161,39 @@ def get_available_races():
         return pd.DataFrame(race_schedule)
 
 #===============================================================================
+# LIVE TIMING DATA FUNCTIONS
+#===============================================================================
+
+def fetch_live_timing_data(drivers, session_type='R'):
+    """
+    Fetch live timing data for specified drivers.
+    
+    Args:
+        drivers: List of driver codes
+        session_type: Session type ('R', 'Q', etc.)
+    
+    Returns:
+        pd.DataFrame: Live timing data or None if not available
+    """
+    try:
+        # For now, return None as placeholder
+        # In production, this would connect to F1 live timing API
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching live data: {e}")
+        return None
+
+def is_live_session_available():
+    """
+    Check if a live session is currently available.
+    
+    Returns:
+        bool: True if live session available
+    """
+    # Placeholder - implement actual check
+    return False
+
+#===============================================================================
 # DATA QUALITY FUNCTIONS
 #===============================================================================
 

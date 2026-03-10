@@ -48,5 +48,17 @@ def load_css():
             color: #666;
             padding: 1rem;
         }
+        .mode-toggle-container {
+            background: linear-gradient(90deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 10px;
+            padding: 1rem;
+            margin: 1rem 0;
+            border: 1px solid #e10600;
+        }
+        .mode-label {
+            font-size: 0.9rem;
+            color: #888;
+            margin-bottom: 0.5rem;
+        }
     </style>
     """, unsafe_allow_html=True)
