@@ -101,12 +101,6 @@ def render_sidebar_config():
         st.image("https://www.formula1.com/etc/designs/fom-website/images/f1_logo.svg", width=200)
         st.markdown("## ⚙️ Configuration")
         
-        input_method = st.radio(
-            "Data Source",
-            ["🎯 Quick Analysis", "📅 Race Calendar", "📁 Upload CSV"],
-            help="Choose how to load data"
-        )
-        
         st.markdown("### 🔧 Model Parameters")
         
         with st.expander("Fuel Model", expanded=False):
@@ -135,4 +129,4 @@ def render_sidebar_config():
                 help="Method to calculate fresh tire benchmark"
             )
         
-        return input_method, fuel_decay, fuel_penalty, max_degradation, benchmark
+        return fuel_decay, fuel_penalty, max_degradation, benchmark
