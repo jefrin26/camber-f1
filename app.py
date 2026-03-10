@@ -31,17 +31,24 @@ from src.tire_model import (
     create_degradation_chart,
     create_heatmap
 )
-from src.data_fetcher import (
-    fetch_race_data,
-    get_available_races,
-    check_data_quality,
-    get_feature_availability,
+
+# Import cache manager
+from src.cache_manager import (
     get_cache_size,
     clear_old_cache,
     clear_session_cache,
     clear_all_cache,
     list_cache_contents,
     get_cache_stats
+)
+
+# Import data fetcher (non-cache functions)
+from src.data_fetcher import (
+    fetch_race_data,
+    get_available_races,
+    check_data_quality,
+    get_feature_availability,
+    get_drivers_for_race
 )
 
 # Configure logging
@@ -59,18 +66,6 @@ st.set_page_config(
 # Load custom CSS
 load_css()
 
-# Initialize cache
-CACHE_DIR = Path(__file__).parent / 'cache'
-CACHE_DIR.mkdir(exist_ok=True)
-
-# Initialize session state for confirmations
-if 'confirm_clear_all' not in st.session_state:
-    st.session_state['confirm_clear_all'] = False
-if 'last_cache_action' not in st.session_state:
-    st.session_state['last_cache_action'] = None
-if 'cache_action_time' not in st.session_state:
-    st.session_state['cache_action_time'] = None
-
 #===============================================================================
 # SIDEBAR CONFIGURATION (Override the one from ui.components to add cache management)
 #===============================================================================
@@ -81,13 +76,8 @@ def render_sidebar_with_cache():
         st.image("https://www.formula1.com/etc/designs/fom-website/images/f1_logo.svg", width=200)
         st.markdown("## ⚙️ Configuration")
         
-        # Input method selection
-        input_method = st.radio(
-            "Data Source",
-            ["🎯 Quick Analysis", "📅 Race Calendar", "📁 Upload CSV"],
-            help="Choose how to load data",
-            key="input_method"
-        )
+        # Race Calendar is the default data source
+        input_method = "📅 Race Calendar"
         
         # Analysis parameters
         st.markdown("### 🔧 Model Parameters")
@@ -118,102 +108,11 @@ def render_sidebar_with_cache():
                 help="Method to calculate fresh tire benchmark"
             )
         
-        # Cache management
-        st.markdown("### 🗑️ Cache Management")
-        with st.expander("Cache Settings", expanded=False):
-            # Get cache info
-            cache_info = get_cache_size()
-            
-            # Display cache stats
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Size", f"{cache_info['size_mb']:.1f} MB")
-            with col2:
-                st.metric("Files", cache_info['file_count'])
-            
-            # Show last action if any
-            if st.session_state['cache_action_time']:
-                st.caption(f"Last: {st.session_state['last_cache_action']} at {st.session_state['cache_action_time']}")
-            
-            # Cache action buttons
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🗑️ Clear Temp", use_container_width=True, help="Clear temporary files (.npy, .tmp, etc.)"):
-                    with st.spinner("Clearing temporary files..."):
-                        deleted = clear_session_cache()
-                        if deleted > 0:
-                            st.session_state['last_cache_action'] = f"Cleared {deleted} temp files"
-                            st.session_state['cache_action_time'] = datetime.now().strftime("%H:%M:%S")
-                            st.success(f"✅ Cleared {deleted} temporary files!")
-                        else:
-                            st.info("No temporary files to clear")
-                        time.sleep(1)
-                        st.rerun()
-            
-            with col2:
-                if st.button("🧹 Clear Old", use_container_width=True, help="Clear files older than 7 days"):
-                    with st.spinner("Clearing old files..."):
-                        deleted = clear_old_cache(max_age_days=7)
-                        if deleted > 0:
-                            st.session_state['last_cache_action'] = f"Cleared {deleted} old files"
-                            st.session_state['cache_action_time'] = datetime.now().strftime("%H:%M:%S")
-                            st.success(f"✅ Cleared {deleted} old files!")
-                        else:
-                            st.info("No old files to clear")
-                        time.sleep(1)
-                        st.rerun()
-            
-            # Clear all button with confirmation
-            if st.button("⚠️ Clear All Cache", use_container_width=True, type="secondary", help="Delete everything in cache"):
-                st.session_state['confirm_clear_all'] = True
-            
-            if st.session_state['confirm_clear_all']:
-                st.warning("⚠️ This will delete ALL cached data!")
-                col_yes, col_no = st.columns(2)
-                with col_yes:
-                    if st.button("✅ Yes, delete all", use_container_width=True, key="confirm_yes"):
-                        with st.spinner("Deleting all cache..."):
-                            before_info = get_cache_size()
-                            result = clear_all_cache()
-                            if result:
-                                after_info = get_cache_size()
-                                deleted_count = before_info['file_count'] - after_info['file_count']
-                                st.session_state['last_cache_action'] = f"Cleared all ({deleted_count} files)"
-                                st.session_state['cache_action_time'] = datetime.now().strftime("%H:%M:%S")
-                                st.success(f"✅ Deleted {deleted_count} files! Cache is now {after_info['size_mb']:.1f} MB")
-                            else:
-                                st.error("❌ Failed to clear some files")
-                            st.session_state['confirm_clear_all'] = False
-                            time.sleep(1)
-                            st.rerun()
-                
-                with col_no:
-                    if st.button("❌ Cancel", use_container_width=True, key="confirm_no"):
-                        st.session_state['confirm_clear_all'] = False
-                        st.rerun()
-            
-            # Optional: Show cache contents (collapsible)
-            with st.expander("📂 View Cache Contents", expanded=False):
-                contents = list_cache_contents(limit=15)
-                if contents:
-                    for item in contents:
-                        st.text(f"📄 {item['name']} ({item['size_kb']} KB)")
-                    cache_info = get_cache_size()
-                    if cache_info['file_count'] > 15:
-                        st.text(f"... and {cache_info['file_count'] - 15} more files")
-                else:
-                    st.text("Cache is empty")
-        
         # New Analysis button
         if st.button("🔄 New Analysis", use_container_width=True):
             if 'analysis_df' in st.session_state:
                 del st.session_state['analysis_df']
             st.rerun()
-        
-        # Display cache size in sidebar footer
-        cache_info = get_cache_size()
-        st.sidebar.markdown("---")
-        st.sidebar.caption(f"💾 Cache: {cache_info['size_mb']:.1f} MB ({cache_info['file_count']} files)")
         
         return input_method, fuel_decay, fuel_penalty, max_degradation, benchmark
 
@@ -231,152 +130,80 @@ def main():
     # Main content area
     df = None
     
-    # Handle different input methods
-    if input_method == "🎯 Quick Analysis":
-        st.markdown('<p class="sub-header">🎯 Quick Analysis</p>', unsafe_allow_html=True)
-        
-        # Add a clear button in the main area too
-        col_clear, col_empty = st.columns([1, 11])
-        with col_clear:
-            if st.button("🗑️ Clear Results", use_container_width=True):
-                if 'analysis_df' in st.session_state:
-                    del st.session_state['analysis_df']
-                st.rerun()
-        
+    # Race Calendar is the only data source
+    st.markdown('<p class="sub-header">📅 Race Calendar</p>', unsafe_allow_html=True)
+    
+    # Add a clear button
+    col_clear, col_empty = st.columns([1, 11])
+    with col_clear:
+        if st.button("🗑️ Clear Results", use_container_width=True):
+            if 'analysis_df' in st.session_state:
+                del st.session_state['analysis_df']
+            st.rerun()
+    
+    races_df = get_available_races()
+    
+    if not races_df.empty:
+        years = sorted(races_df['Year'].unique(), reverse=True)
         col1, col2, col3 = st.columns(3)
+        
         with col1:
-            year = st.number_input("Year", min_value=1950, max_value=datetime.now().year, value=2023, key="quick_year")
+            selected_year = st.selectbox("Year", years, key="calendar_year")
+            quality_score = render_data_quality_banner(selected_year, check_data_quality)
+            
+            if quality_score < 75:
+                with st.expander("🔍 Available data for this year", expanded=False):
+                    render_feature_availability(get_feature_availability(selected_year))
+        
         with col2:
-            round_num = st.number_input("Round", min_value=1, max_value=30, value=22, key="quick_round")
+            year_races = races_df[races_df['Year'] == selected_year]
+            race_options = year_races.apply(
+                lambda x: f"Round {int(x['Round'])}: {x['Event']} ({x['Country']})", 
+                axis=1
+            ).tolist()
+            
+            selected_race = st.selectbox("Race", race_options, key="calendar_race")
+            selected_idx = race_options.index(selected_race)
+            round_num = int(year_races.iloc[selected_idx]['Round'])
+        
+        # Session selection before driver (needed for driver list)
+        session = st.selectbox("Session", ["R", "Q", "S", "FP1", "FP2", "FP3"], key="calendar_session")
+        
         with col3:
-            driver = st.text_input("Driver Code", value="VER", key="quick_driver").upper()
-        
-        # Display data quality banner
-        quality_score = render_data_quality_banner(year, check_data_quality)
-        
-        # If older data, show additional warning
-        if quality_score < 75:
-            with st.expander("🔍 What data is available for this year?", expanded=True):
-                render_feature_availability(get_feature_availability(year))
-                
-                if quality_score < 50:
-                    st.warning("""
-                    **⚠️ Analysis Limitations:**
-                    - Tire compound data may not be available
-                    - Fuel correction will be based on estimates
-                    - Health scores will be calculated from lap times only
-                    """)
-        
-        session = st.selectbox("Session", ["R", "Q", "S", "FP1", "FP2", "FP3"], key="quick_session")
+            # Fetch drivers for the selected race
+            drivers_list = get_drivers_for_race(selected_year, round_num, session)
+            
+            # If no drivers found (empty list), use a fallback list of common F1 drivers
+            if not drivers_list:
+                drivers_list = ['VER', 'HAM', 'NOR', 'LEC', 'PIA', 'RUS', 'ALO', 'GAS', 'TSU', 'BOT', 'ZHO', 'ALB', 'OCO', 'STR', 'MAG', 'HUL', 'DEV', 'SAI', 'PER', 'RIC']
+                st.warning(f"⚠️ Could not fetch drivers for this race. Showing common drivers.")
+            
+            driver = st.selectbox("Driver", drivers_list, index=drivers_list.index('VER') if 'VER' in drivers_list else 0, key="calendar_driver")
         
         if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
-            # Check year validity before running
             if quality_score < 20:
-                st.error("❌ Selected year has very limited data. Analysis may not be meaningful.")
+                st.error("❌ Selected year has very limited data.")
                 if not st.checkbox("Continue anyway?"):
                     st.stop()
             
             with st.spinner("Fetching and analyzing data..."):
-                raw_df = fetch_race_data(year, round_num, driver, session)
+                # Clear cache before fetching new data to ensure fresh results
+                clear_all_cache()
+                
+                raw_df = fetch_race_data(selected_year, round_num, driver, session)
                 
                 if raw_df is not None and len(raw_df) > 0:
-                    # Add year-specific warnings
-                    if year < 2018:
-                        st.warning(f"⚠️ **Note:** Data from {year} has limitations. Tire compound information may be incomplete.")
+                    if selected_year < 2018:
+                        st.warning(f"⚠️ **Note:** Data from {selected_year} has limitations.")
                     
                     df = calculate_degradation_delta(raw_df, fuel_decay, fuel_penalty, benchmark)
                     df = add_health_scores(df, max_degradation)
                     st.session_state['analysis_df'] = df
                     st.success(f"✅ Analysis complete! Loaded {len(df)} laps.")
                 else:
-                    st.error("❌ No data found for the selected criteria.")
-    
-    elif input_method == "📅 Race Calendar":
-        st.markdown('<p class="sub-header">📅 Race Calendar</p>', unsafe_allow_html=True)
-        
-        # Add a clear button
-        col_clear, col_empty = st.columns([1, 11])
-        with col_clear:
-            if st.button("🗑️ Clear Results", use_container_width=True):
-                if 'analysis_df' in st.session_state:
-                    del st.session_state['analysis_df']
-                st.rerun()
-        
-        races_df = get_available_races()
-        
-        if not races_df.empty:
-            years = sorted(races_df['Year'].unique(), reverse=True)
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                selected_year = st.selectbox("Year", years, key="calendar_year")
-                quality_score = render_data_quality_banner(selected_year, check_data_quality)
-                
-                if quality_score < 75:
-                    with st.expander("🔍 Available data for this year", expanded=False):
-                        render_feature_availability(get_feature_availability(selected_year))
-            
-            with col2:
-                year_races = races_df[races_df['Year'] == selected_year]
-                race_options = year_races.apply(
-                    lambda x: f"Round {int(x['Round'])}: {x['Event']} ({x['Country']})", 
-                    axis=1
-                ).tolist()
-                
-                selected_race = st.selectbox("Race", race_options, key="calendar_race")
-                selected_idx = race_options.index(selected_race)
-                round_num = int(year_races.iloc[selected_idx]['Round'])
-            
-            with col3:
-                driver = st.text_input("Driver Code", value="VER", key="calendar_driver").upper()
-            
-            session = st.selectbox("Session", ["R", "Q", "S", "FP1", "FP2", "FP3"], key="calendar_session")
-            
-            if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
-                if quality_score < 20:
-                    st.error("❌ Selected year has very limited data.")
-                    if not st.checkbox("Continue anyway?"):
-                        st.stop()
-                
-                with st.spinner("Fetching and analyzing data..."):
-                    raw_df = fetch_race_data(selected_year, round_num, driver, session)
-                    
-                    if raw_df is not None and len(raw_df) > 0:
-                        if selected_year < 2018:
-                            st.warning(f"⚠️ **Note:** Data from {selected_year} has limitations.")
-                        
-                        df = calculate_degradation_delta(raw_df, fuel_decay, fuel_penalty, benchmark)
-                        df = add_health_scores(df, max_degradation)
-                        st.session_state['analysis_df'] = df
-                        st.success(f"✅ Analysis complete! Loaded {len(df)} laps.")
-                    else:
-                        st.error("❌ No data found.")
-        else:
-            st.warning("Could not load race calendar. Please use Quick Analysis.")
-    
-    else:  # Upload CSV
-        st.markdown('<p class="sub-header">📁 Upload Your Data</p>', unsafe_allow_html=True)
-        
-        uploaded_file = st.file_uploader(
-            "Upload CSV file with lap data",
-            type=['csv'],
-            help="File must contain columns: LapNumber, LapTimeSeconds, TyreLife, Stint, Compound"
-        )
-        
-        if uploaded_file is not None:
-            try:
-                raw_df = pd.read_csv(uploaded_file)
-                required_cols = ['LapNumber', 'LapTimeSeconds', 'TyreLife', 'Stint', 'Compound']
-                
-                if all(col in raw_df.columns for col in required_cols):
-                    df = calculate_degradation_delta(raw_df, fuel_decay, fuel_penalty, benchmark)
-                    df = add_health_scores(df, max_degradation)
-                    st.session_state['analysis_df'] = df
-                    st.success(f"✅ File loaded! Found {len(df)} laps.")
-                else:
-                    st.error(f"CSV must contain columns: {required_cols}")
-            except Exception as e:
-                st.error(f"Error loading file: {e}")
+                    st.error("❌ No data found.")
+    else:
+        st.warning("Could not load race calendar.")
     
     # Display results if available
     if 'analysis_df' in st.session_state and st.session_state['analysis_df'] is not None:

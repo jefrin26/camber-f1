@@ -5,185 +5,26 @@ F1 data fetcher using FastF1 library.
 import fastf1
 import pandas as pd
 import logging
-from pathlib import Path
 from datetime import datetime
 import streamlit as st
-import time
-import shutil
-import os
+
+# Import cache manager for cache operations
+from src.cache_manager import (
+    CACHE_DIR,
+    get_cache_size,
+    clear_old_cache,
+    clear_session_cache,
+    clear_all_cache,
+    list_cache_contents,
+    get_cache_stats
+)
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# Get the project root directory
-CACHE_DIR = Path(__file__).parent.parent / 'cache'
-CACHE_DIR.mkdir(exist_ok=True)
-
-# Enable FastF1 caching
+# Enable FastF1 caching (imported from cache_manager)
 fastf1.Cache.enable_cache(str(CACHE_DIR))
-
-#===============================================================================
-# CACHE MANAGEMENT FUNCTIONS
-#===============================================================================
-
-def get_cache_size():
-    """Get the size of the cache directory in MB and file count."""
-    cache_dir = Path(__file__).parent.parent / 'cache'
-    if not cache_dir.exists():
-        return {'size_mb': 0, 'file_count': 0}
-    
-    total_size = 0
-    file_count = 0
-    for file in cache_dir.rglob('*'):
-        if file.is_file():
-            total_size += file.stat().st_size
-            file_count += 1
-    
-    return {
-        'size_mb': total_size / (1024 * 1024),
-        'file_count': file_count
-    }
-
-def clear_old_cache(max_age_days=7):
-    """Clear cache files older than max_age_days."""
-    cache_dir = Path(__file__).parent.parent / 'cache'
-    if not cache_dir.exists():
-        return 0
-    
-    current_time = time.time()
-    max_age_seconds = max_age_days * 24 * 60 * 60
-    
-    deleted_count = 0
-    for file in cache_dir.rglob('*'):
-        if file.is_file():
-            file_age = current_time - file.stat().st_mtime
-            if file_age > max_age_seconds:
-                try:
-                    file.unlink()
-                    deleted_count += 1
-                    print(f"Deleted old file: {file}")
-                except Exception as e:
-                    print(f"Could not delete {file}: {e}")
-    
-    # Clean up empty directories
-    for dir_path in cache_dir.rglob('*'):
-        if dir_path.is_dir() and not any(dir_path.iterdir()):
-            try:
-                dir_path.rmdir()
-                print(f"Removed empty directory: {dir_path}")
-            except:
-                pass
-    
-    return deleted_count
-
-def clear_session_cache():
-    """Clear only the current session's temporary cache."""
-    cache_dir = Path(__file__).parent.parent / 'cache'
-    if not cache_dir.exists():
-        return 0
-    
-    deleted_count = 0
-    
-    # Clear temporary files by extension
-    temp_extensions = ['.npy', '.tmp', '.part', '.temp', '.pickle', '.pkl', '.cache']
-    for ext in temp_extensions:
-        for file in cache_dir.rglob(f'*{ext}'):
-            try:
-                if file.is_file():
-                    file.unlink()
-                    deleted_count += 1
-                    print(f"Deleted temp file: {file}")
-            except Exception as e:
-                print(f"Could not delete {file}: {e}")
-    
-    # Clear fastf1 temp directories
-    for item in cache_dir.iterdir():
-        if item.is_dir() and ('fastf1' in item.name or 'temp' in item.name):
-            try:
-                shutil.rmtree(item)
-                deleted_count += 1
-                print(f"Deleted directory: {item}")
-            except Exception as e:
-                print(f"Could not delete {item}: {e}")
-    
-    return deleted_count
-
-def clear_all_cache():
-    """Clear all cache (dangerous - use with caution)."""
-    cache_dir = Path(__file__).parent.parent / 'cache'
-    if not cache_dir.exists():
-        return False
-    
-    deleted_count = 0
-    try:
-        # Delete all files and directories inside cache
-        for item in cache_dir.iterdir():
-            try:
-                if item.is_file():
-                    item.unlink()
-                    deleted_count += 1
-                    print(f"Deleted file: {item}")
-                elif item.is_dir():
-                    shutil.rmtree(item)
-                    deleted_count += 1
-                    print(f"Deleted directory: {item}")
-            except Exception as e:
-                print(f"Could not delete {item}: {e}")
-        
-        # Re-enable cache after clearing
-        fastf1.Cache.enable_cache(str(cache_dir))
-        return deleted_count
-    except Exception as e:
-        print(f"Error clearing all cache: {e}")
-        return False
-
-def list_cache_contents(limit=20):
-    """List contents of cache directory for debugging."""
-    cache_dir = Path(__file__).parent.parent / 'cache'
-    if not cache_dir.exists():
-        return []
-    
-    contents = []
-    for i, item in enumerate(cache_dir.rglob('*')):
-        if i >= limit:
-            break
-        if item.is_file():
-            size_kb = item.stat().st_size / 1024
-            mtime = datetime.fromtimestamp(item.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-            contents.append({
-                'name': item.name,
-                'path': str(item.relative_to(cache_dir)),
-                'size_kb': round(size_kb, 2),
-                'modified': mtime
-            })
-    
-    return contents
-
-def get_cache_stats():
-    """Get detailed cache statistics."""
-    cache_dir = Path(__file__).parent.parent / 'cache'
-    if not cache_dir.exists():
-        return {}
-    
-    total_size = 0
-    file_count = 0
-    by_extension = {}
-    
-    for file in cache_dir.rglob('*'):
-        if file.is_file():
-            size = file.stat().st_size
-            total_size += size
-            file_count += 1
-            
-            ext = file.suffix or 'no_extension'
-            by_extension[ext] = by_extension.get(ext, 0) + 1
-    
-    return {
-        'total_size_mb': total_size / (1024 * 1024),
-        'file_count': file_count,
-        'by_extension': by_extension
-    }
 
 #===============================================================================
 # DATA FETCHING FUNCTIONS
@@ -338,38 +179,121 @@ def check_data_quality(year):
     if year >= 2018:
         return (
             "✅", 
-            f"**High Quality Data** ({year}) - Full telemetry, tire compounds, and accurate lap times available",
+            f"High Quality Data ({year}) - Full telemetry, tire compounds, and accurate lap times available",
             100,
             "#00ff00"
         )
     elif year >= 2014:
         return (
             "⚠️", 
-            f"**Moderate Quality Data** ({year}) - Hybrid era: Basic telemetry available, tire compound data may be limited",
+            f"Moderate Quality Data ({year}) - Hybrid era: Basic telemetry available, tire compound data may be limited",
             75,
             "#ffaa00"
         )
     elif year >= 2010:
         return (
             "⚠️⚠️", 
-            f"**Limited Data** ({year}) - Pre-hybrid era: Lap times available, limited telemetry, tire data may be incomplete",
+            f"Limited Data ({year}) - Pre-hybrid era: Lap times available, limited telemetry, tire data may be incomplete",
             50,
             "#ff6600"
         )
     elif year >= 2000:
         return (
             "⚠️⚠️⚠️", 
-            f"**Basic Data Only** ({year}) - Vintage era: Lap times and basic results available, no tire compound information",
+            f"Basic Data Only ({year}) - Vintage era: Lap times and basic results available, no tire compound information",
             25,
             "#ff3300"
         )
     else:
         return (
             "❌", 
-            f"**Very Limited Data** ({year}) - Historical data: May only have race results, lap times may be incomplete",
+            f"Very Limited Data ({year}) - Historical data: May only have race results, lap times may be incomplete",
             10,
             "#ff0000"
         )
+
+@st.cache_data(ttl=3600, max_entries=50, persist=False)
+def get_drivers_for_race(year, round_num, session_type='R'):
+    """
+    Get list of drivers for a specific race.
+    
+    Args:
+        year: Season year
+        round_num: Race round number
+        session_type: Session type ('R' for Race, 'Q' for Qualifying, etc.)
+    
+    Returns:
+        list: Sorted list of driver codes
+    """
+    try:
+        session = fastf1.get_session(year, round_num, session_type)
+        session.load()
+        
+        drivers = []
+        
+        # Method 1: Try to get drivers from session.results
+        try:
+            if hasattr(session, 'results') and session.results is not None and len(session.results) > 0:
+                drivers = session.results['Abbreviation'].tolist()
+        except Exception as e:
+            logger.debug(f"Method 1 failed: {e}")
+        
+        # Method 2: Try session.drivers (list of driver IDs)
+        if not drivers:
+            try:
+                if hasattr(session, 'drivers') and session.drivers:
+                    drivers = list(session.drivers)
+            except Exception as e:
+                logger.debug(f"Method 2 failed: {e}")
+        
+        # Method 3: Try to get driver names from the session
+        if not drivers:
+            try:
+                if hasattr(session, 'driver') and session.driver:
+                    drivers = list(session.driver.keys())
+            except Exception as e:
+                logger.debug(f"Method 3 failed: {e}")
+        
+        # Method 4: Try to get drivers from session.laps
+        if not drivers:
+            try:
+                if hasattr(session, 'laps') and session.laps is not None:
+                    drivers = session.laps['Driver'].unique().tolist()
+            except Exception as e:
+                logger.debug(f"Method 4 failed: {e}")
+        
+        # If still no drivers, try loading just the session data again
+        if not drivers:
+            try:
+                session = fastf1.get_session(year, round_num, session_type)
+                session.load(laps=False, telemetry=False, weather=False)
+                if hasattr(session, 'results') and session.results is not None:
+                    drivers = session.results['Abbreviation'].tolist()
+            except Exception as e:
+                logger.debug(f"Method 5 failed: {e}")
+        
+        # If still no drivers, return empty list (let app handle fallback)
+        if not drivers:
+            logger.warning(f"No drivers found for {year} R{round_num} {session_type}")
+            return []
+        
+        # Ensure all drivers are uppercase strings
+        drivers = [str(d).upper() for d in drivers if d]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_drivers = []
+        for d in drivers:
+            if d not in seen:
+                seen.add(d)
+                unique_drivers.append(d)
+        
+        return sorted(unique_drivers)
+    
+    except Exception as e:
+        logger.warning(f"Could not fetch drivers for {year} R{round_num}: {e}")
+        # Return empty list to trigger fallback in app
+        return []
 
 def get_feature_availability(year):
     """
