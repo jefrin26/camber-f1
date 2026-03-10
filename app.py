@@ -31,17 +31,23 @@ from src.tire_model import (
     create_degradation_chart,
     create_heatmap
 )
-from src.data_fetcher import (
-    fetch_race_data,
-    get_available_races,
-    check_data_quality,
-    get_feature_availability,
+
+# Import cache manager
+from src.cache_manager import (
     get_cache_size,
     clear_old_cache,
     clear_session_cache,
     clear_all_cache,
     list_cache_contents,
     get_cache_stats
+)
+
+# Import data fetcher (non-cache functions)
+from src.data_fetcher import (
+    fetch_race_data,
+    get_available_races,
+    check_data_quality,
+    get_feature_availability
 )
 
 # Configure logging
@@ -59,11 +65,6 @@ st.set_page_config(
 # Load custom CSS
 load_css()
 
-# Initialize cache
-CACHE_DIR = Path(__file__).parent / 'cache'
-CACHE_DIR.mkdir(exist_ok=True)
-
-# Initialize session state for confirmations
 if 'confirm_clear_all' not in st.session_state:
     st.session_state['confirm_clear_all'] = False
 if 'last_cache_action' not in st.session_state:
