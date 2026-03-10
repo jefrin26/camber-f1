@@ -212,6 +212,89 @@ def check_data_quality(year):
             "#ff0000"
         )
 
+@st.cache_data(ttl=3600, max_entries=50, persist=False)
+def get_drivers_for_race(year, round_num, session_type='R'):
+    """
+    Get list of drivers for a specific race.
+    
+    Args:
+        year: Season year
+        round_num: Race round number
+        session_type: Session type ('R' for Race, 'Q' for Qualifying, etc.)
+    
+    Returns:
+        list: Sorted list of driver codes
+    """
+    try:
+        session = fastf1.get_session(year, round_num, session_type)
+        session.load()
+        
+        drivers = []
+        
+        # Method 1: Try to get drivers from session.results
+        try:
+            if hasattr(session, 'results') and session.results is not None and len(session.results) > 0:
+                drivers = session.results['Abbreviation'].tolist()
+        except Exception as e:
+            logger.debug(f"Method 1 failed: {e}")
+        
+        # Method 2: Try session.drivers (list of driver IDs)
+        if not drivers:
+            try:
+                if hasattr(session, 'drivers') and session.drivers:
+                    drivers = list(session.drivers)
+            except Exception as e:
+                logger.debug(f"Method 2 failed: {e}")
+        
+        # Method 3: Try to get driver names from the session
+        if not drivers:
+            try:
+                if hasattr(session, 'driver') and session.driver:
+                    drivers = list(session.driver.keys())
+            except Exception as e:
+                logger.debug(f"Method 3 failed: {e}")
+        
+        # Method 4: Try to get drivers from session.laps
+        if not drivers:
+            try:
+                if hasattr(session, 'laps') and session.laps is not None:
+                    drivers = session.laps['Driver'].unique().tolist()
+            except Exception as e:
+                logger.debug(f"Method 4 failed: {e}")
+        
+        # If still no drivers, try loading just the session data again
+        if not drivers:
+            try:
+                session = fastf1.get_session(year, round_num, session_type)
+                session.load(laps=False, telemetry=False, weather=False)
+                if hasattr(session, 'results') and session.results is not None:
+                    drivers = session.results['Abbreviation'].tolist()
+            except Exception as e:
+                logger.debug(f"Method 5 failed: {e}")
+        
+        # If still no drivers, return empty list (let app handle fallback)
+        if not drivers:
+            logger.warning(f"No drivers found for {year} R{round_num} {session_type}")
+            return []
+        
+        # Ensure all drivers are uppercase strings
+        drivers = [str(d).upper() for d in drivers if d]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_drivers = []
+        for d in drivers:
+            if d not in seen:
+                seen.add(d)
+                unique_drivers.append(d)
+        
+        return sorted(unique_drivers)
+    
+    except Exception as e:
+        logger.warning(f"Could not fetch drivers for {year} R{round_num}: {e}")
+        # Return empty list to trigger fallback in app
+        return []
+
 def get_feature_availability(year):
     """
     Get detailed feature availability for a given year.

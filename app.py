@@ -47,7 +47,8 @@ from src.data_fetcher import (
     fetch_race_data,
     get_available_races,
     check_data_quality,
-    get_feature_availability
+    get_feature_availability,
+    get_drivers_for_race
 )
 
 # Configure logging
@@ -165,10 +166,19 @@ def main():
             selected_idx = race_options.index(selected_race)
             round_num = int(year_races.iloc[selected_idx]['Round'])
         
-        with col3:
-            driver = st.text_input("Driver Code", value="VER", key="calendar_driver").upper()
-        
+        # Session selection before driver (needed for driver list)
         session = st.selectbox("Session", ["R", "Q", "S", "FP1", "FP2", "FP3"], key="calendar_session")
+        
+        with col3:
+            # Fetch drivers for the selected race
+            drivers_list = get_drivers_for_race(selected_year, round_num, session)
+            
+            # If no drivers found (empty list), use a fallback list of common F1 drivers
+            if not drivers_list:
+                drivers_list = ['VER', 'HAM', 'NOR', 'LEC', 'PIA', 'RUS', 'ALO', 'GAS', 'TSU', 'BOT', 'ZHO', 'ALB', 'OCO', 'STR', 'MAG', 'HUL', 'DEV', 'SAI', 'PER', 'RIC']
+                st.warning(f"⚠️ Could not fetch drivers for this race. Showing common drivers.")
+            
+            driver = st.selectbox("Driver", drivers_list, index=drivers_list.index('VER') if 'VER' in drivers_list else 0, key="calendar_driver")
         
         if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
             if quality_score < 20:
