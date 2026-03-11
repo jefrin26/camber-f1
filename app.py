@@ -236,7 +236,14 @@ def main():
                     axis=1
                 ).tolist()
                 
-                selected_race = st.selectbox("Race", race_options, key="calendar_race")
+                # Find the index of Round 1 (default to 0 if not found)
+                round_1_idx = 0
+                for idx, option in enumerate(race_options):
+                    if 'Round 1:' in option:
+                        round_1_idx = idx
+                        break
+                
+                selected_race = st.selectbox("Race", race_options, index=round_1_idx, key="calendar_race")
                 selected_idx = race_options.index(selected_race)
                 round_num = int(year_races.iloc[selected_idx]['Round'])
             
