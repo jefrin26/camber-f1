@@ -65,7 +65,7 @@ class F1TireAnalysisPipeline:
         logger.info(f"=== Starting analysis for {driver} - {year} Round {round_num} ===")
         
         # Step 1: Fetch data
-        df = data_fetcher.get_race_data(year, round_num, driver, session_type)
+        df = data_fetcher.fetch_race_data(year, round_num, driver, session_type)
         
         if df is None or len(df) == 0:
             logger.error(f"No data retrieved for {driver}")
