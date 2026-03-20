@@ -9,7 +9,6 @@ import numpy as np
 from pathlib import Path
 import logging
 from datetime import datetime
-import time
 
 # Import UI components
 from ui import (
@@ -490,10 +489,9 @@ def main():
                 with st.expander("📋 Live Data Table", expanded=False):
                     render_live_table(monitor.processed_data)
             
-            # Auto-refresh if active
+            # Auto-refresh if active - use Streamlit's auto-rerun mechanism instead of blocking sleep
             if monitor.is_active and not monitor.is_paused:
-                time.sleep(monitor.update_interval)
-                st.rerun()
+                st.session_state['auto_refresh'] = True
         else:
             st.info("👈 Configure live monitoring in the sidebar and click 'Start'")
     
