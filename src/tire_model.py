@@ -49,11 +49,17 @@ def calculate_degradation_delta(df, fuel_decay_per_lap=2.5, time_penalty_per_kg=
         stint_data = result_df[stint_mask]
         
         if benchmark_method == 'fastest':
+            if stint_data.empty:
+                logger.warning(f"Empty stint data encountered for stint {stint_num}")
+                continue
             benchmark_time = stint_data['CorrectedTime'].min()
         elif benchmark_method == 'second_lap' and len(stint_data) >= 2:
             second_lap = stint_data[stint_data['TyreLife'] == 2]
             benchmark_time = second_lap['CorrectedTime'].iloc[0] if not second_lap.empty else stint_data['CorrectedTime'].min()
         else:
+            if stint_data.empty:
+                logger.warning(f"Empty stint data encountered for stint {stint_num}")
+                continue
             benchmark_time = stint_data['CorrectedTime'].median()
         
         result_df.loc[stint_mask, 'FreshTireBenchmark'] = benchmark_time
@@ -131,6 +137,8 @@ def create_degradation_chart(df):
     # 1. Lap Times
     for stint in df['Stint'].unique():
         stint_data = df[df['Stint'] == stint]
+        if stint_data.empty:
+            continue
         compound = stint_data['Compound'].iloc[0]
         color = colors.get(compound, '#808080')
         
@@ -150,6 +158,8 @@ def create_degradation_chart(df):
     # 2. Degradation Delta
     for stint in df['Stint'].unique():
         stint_data = df[df['Stint'] == stint]
+        if stint_data.empty:
+            continue
         compound = stint_data['Compound'].iloc[0]
         color = colors.get(compound, '#808080')
         
@@ -170,6 +180,8 @@ def create_degradation_chart(df):
     # 3. Health Score
     for stint in df['Stint'].unique():
         stint_data = df[df['Stint'] == stint]
+        if stint_data.empty:
+            continue
         compound = stint_data['Compound'].iloc[0]
         color = colors.get(compound, '#808080')
         
