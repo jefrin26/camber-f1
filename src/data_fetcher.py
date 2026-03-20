@@ -135,7 +135,8 @@ def get_available_races():
                             'Country': event['Country'],
                             'Date': event['EventDate']
                         })
-                except:
+                except Exception as e:
+                    logger.warning(f"Could not fetch events for year {year}: {e}")
                     continue
             return pd.DataFrame(race_schedule)
         
@@ -156,7 +157,8 @@ def get_available_races():
                         'Country': event['Country'],
                         'Date': event['EventDate']
                     })
-            except:
+            except Exception as e:
+                logger.warning(f"Could not fetch events for year {year}: {e}")
                 continue
         return pd.DataFrame(race_schedule)
 
@@ -176,8 +178,9 @@ def fetch_live_timing_data(drivers, session_type='R'):
         pd.DataFrame: Live timing data or None if not available
     """
     try:
-        # For now, return None as placeholder
-        # In production, this would connect to F1 live timing API
+        # Live timing API not yet implemented
+        # Would connect to F1 live timing API in production
+        logger.warning("Live timing data fetch is not yet implemented")
         return None
     except Exception as e:
         logger.error(f"Error fetching live data: {e}")
@@ -190,7 +193,8 @@ def is_live_session_available():
     Returns:
         bool: True if live session available
     """
-    # Placeholder - implement actual check
+    # Live session availability check not yet implemented
+    logger.debug("Live session availability check called but not implemented")
     return False
 
 #===============================================================================
