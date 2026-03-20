@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Callable
 import pandas as pd
 import logging
+import numpy as np
 
 # Import core modules
 from src.data_fetcher import fetch_live_timing_data
@@ -34,6 +35,7 @@ class LiveMonitor:
         self.error_count = 0
         self._update_thread = None
         self._stop_flag = False
+        self._lock = threading.RLock()
         
     def start(self, 
               drivers: List[str], 
@@ -126,30 +128,33 @@ class LiveMonitor:
                 logger.debug("No live data available")
                 return False
             
-            # Store raw data
-            self.data = raw_data
-            
             # Process with tire model
-            self.processed_data = calculate_degradation_delta(
+            processed_data = calculate_degradation_delta(
                 raw_data,
                 fuel_decay_per_lap=self.params.get('fuel_decay', 2.5),
                 time_penalty_per_kg=self.params.get('fuel_penalty', 0.035),
                 benchmark_method=self.params.get('benchmark', 'fastest')
             )
             
-            self.processed_data = add_health_scores(
-                self.processed_data,
+            processed_data = add_health_scores(
+                processed_data,
                 max_degradation=self.params.get('max_degradation', 2.5)
             )
             
             # Update driver stats
-            self.driver_stats = self._calculate_driver_stats()
+            driver_stats = self._calculate_driver_stats(processed_data)
             
             # Update trends
-            self.trends = self._calculate_trends()
+            trends = self._calculate_trends(processed_data)
             
-            self.last_update = datetime.now()
-            self.update_count += 1
+            # Update shared state with lock
+            with self._lock:
+                self.data = raw_data
+                self.processed_data = processed_data
+                self.driver_stats = driver_stats
+                self.trends = trends
+                self.last_update = datetime.now()
+                self.update_count += 1
             
             logger.debug(f"Live update #{self.update_count} successful")
             return True
@@ -158,14 +163,14 @@ class LiveMonitor:
             logger.error(f"Live update failed: {e}")
             return False
     
-    def _calculate_driver_stats(self) -> Dict:
+    def _calculate_driver_stats(self, processed_data: pd.DataFrame) -> Dict:
         """Calculate current statistics for each driver."""
-        if self.processed_data is None or len(self.processed_data) == 0:
+        if processed_data is None or len(processed_data) == 0:
             return {}
         
         stats = {}
-        for driver in self.processed_data['Driver'].unique():
-            driver_data = self.processed_data[self.processed_data['Driver'] == driver]
+        for driver in processed_data['Driver'].unique():
+            driver_data = processed_data[processed_data['Driver'] == driver]
             
             if len(driver_data) > 0:
                 latest = driver_data.iloc[-1]
@@ -189,14 +194,14 @@ class LiveMonitor:
         
         return stats
     
-    def _calculate_trends(self) -> Dict:
+    def _calculate_trends(self, processed_data: pd.DataFrame) -> Dict:
         """Calculate degradation trends for each driver."""
-        if self.processed_data is None or len(self.processed_data) < 5:
+        if processed_data is None or len(processed_data) < 5:
             return {}
         
         trends = {}
-        for driver in self.processed_data['Driver'].unique():
-            driver_data = self.processed_data[self.processed_data['Driver'] == driver]
+        for driver in processed_data['Driver'].unique():
+            driver_data = processed_data[processed_data['Driver'] == driver]
             
             if len(driver_data) >= 5:
                 # Use last 5 laps for trend
@@ -208,7 +213,6 @@ class LiveMonitor:
                 
                 if len(x) > 1:
                     # Calculate slope using numpy
-                    import numpy as np
                     slope = np.polyfit(x, y, 1)[0]
                     
                     # Predict next lap degradation
@@ -228,11 +232,17 @@ class LiveMonitor:
         if slope <= 0:
             return 99  # Not degrading
         
+        if driver_data.empty:
+            return 0
+        
         current_degradation = driver_data['DegradationDelta'].iloc[-1]
         max_degradation = self.params.get('max_degradation', 2.5)
         
         # Calculate laps until max degradation
-        remaining = (max_degradation - current_degradation) / slope if slope > 0 else 99
+        if abs(slope) < 1e-10:  # Avoid division by zero
+            return 99
+        
+        remaining = (max_degradation - current_degradation) / slope
         return max(0, int(remaining))
     
     def get_status(self) -> Dict:
