@@ -74,8 +74,8 @@ def clear_old_cache(max_age_days=7):
             try:
                 dir_path.rmdir()
                 logger.info(f"Removed empty directory: {dir_path}")
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not remove empty directory {dir_path}: {e}")
     
     return deleted_count
 
