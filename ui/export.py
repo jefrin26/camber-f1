@@ -35,7 +35,7 @@ def render_export_section(df, stint_stats, icon, message, score):
     
     with col2:
         st.markdown("### Summary Report")
-        if st.button("Generate Summary Report", use_container_width=True):
+        if st.button("Generate Summary Report", width="stretch"):
             summary = f"""
             F1 TIRE DEGRADATION ANALYSIS REPORT
             ====================================
