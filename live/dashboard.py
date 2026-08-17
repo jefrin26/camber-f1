@@ -288,7 +288,7 @@ def render_live_table(processed_data):
     
     st.dataframe(
         df[display_cols].sort_values('Driver'),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "LapTimeSeconds": st.column_config.NumberColumn(format="%.3f s"),
@@ -302,18 +302,18 @@ def render_live_controls():
     col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 2, 2])
     
     with col1:
-        start = st.button("▶️ Start", type="primary", use_container_width=True)
+        start = st.button("▶️ Start", type="primary", width="stretch")
     
     with col2:
-        pause = st.button("⏸️ Pause", use_container_width=True)
+        pause = st.button("⏸️ Pause", width="stretch")
     
     with col3:
-        resume = st.button("▶️ Resume", use_container_width=True)
+        resume = st.button("▶️ Resume", width="stretch")
     
     with col4:
-        stop = st.button("⏹️ Stop", use_container_width=True)
+        stop = st.button("⏹️ Stop", width="stretch")
     
     with col5:
-        refresh = st.button("🔄 Refresh", use_container_width=True)
+        refresh = st.button("🔄 Refresh", width="stretch")
     
     return start, pause, resume, stop, refresh
