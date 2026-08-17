@@ -150,7 +150,7 @@ def render_sidebar_with_cache():
             )
         
         # New Analysis button
-        if st.button("🔄 New Analysis", use_container_width=True):
+        if st.button("🔄 New Analysis", width="stretch"):
             if 'analysis_df' in st.session_state:
                 del st.session_state['analysis_df']
             st.rerun()
@@ -209,7 +209,7 @@ def main():
         # Add a clear button
         col_clear, col_empty = st.columns([1, 11])
         with col_clear:
-            if st.button("🗑️ Clear Results", use_container_width=True):
+            if st.button("🗑️ Clear Results", width="stretch"):
                 if 'analysis_df' in st.session_state:
                     del st.session_state['analysis_df']
                 st.rerun()
@@ -260,7 +260,7 @@ def main():
                 
                 driver = st.selectbox("Driver", drivers_list, index=drivers_list.index('VER') if 'VER' in drivers_list else 0, key="calendar_driver")
             
-            if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+            if st.button("🚀 Run Analysis", type="primary", width="stretch"):
                 if quality_score < 20:
                     st.error("❌ Selected year has very limited data.")
                     if not st.checkbox("Continue anyway?"):
@@ -330,7 +330,7 @@ def main():
                 stint_stats = calculate_stint_statistics(df)
                 st.dataframe(
                     stint_stats,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     column_config={
                         "Degradation Rate (s/lap)": st.column_config.NumberColumn(format="%.4f"),
@@ -362,11 +362,11 @@ def main():
                 st.markdown('<p class="sub-header">📈 Tire Degradation Visualizations</p>', unsafe_allow_html=True)
                 
                 fig = create_degradation_chart(df)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
                 
                 st.markdown('<p class="sub-header">🔥 Degradation Heatmap</p>', unsafe_allow_html=True)
                 heatmap = create_heatmap(df)
-                st.plotly_chart(heatmap, use_container_width=True)
+                st.plotly_chart(heatmap, width="stretch")
             
             with tab3:
                 st.markdown('<p class="sub-header">🔍 Detailed Lap Data</p>', unsafe_allow_html=True)
@@ -404,7 +404,7 @@ def main():
                 
                 st.dataframe(
                     filtered_df[display_cols].sort_values(['Stint', 'LapNumber']),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     column_config={
                         "LapTimeSeconds": st.column_config.NumberColumn(format="%.3f s"),
@@ -483,7 +483,7 @@ def main():
             if monitor.processed_data is not None:
                 fig = create_live_chart(monitor.processed_data)
                 if fig:
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 
                 # Show live data table
                 with st.expander("📋 Live Data Table", expanded=False):
